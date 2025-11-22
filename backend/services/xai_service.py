@@ -31,17 +31,9 @@ class XAIService:
         try:
             # Create chat with web search tool enabled
             chat = self.client.chat.create(
-                model="grok-4-fast",
+                model="grok-4-1-fast-non-reasoning",
                 tools=[
-                    web_search(
-                        allowed_domains=[
-                            "businessfinland.fi", 
-                            "finnvera.fi", 
-                            "ely-keskus.fi",
-                            "linkedin.com",
-                            "prh.fi"  # Finnish business register
-                        ]
-                    )
+                    web_search()
                 ]
             )
             

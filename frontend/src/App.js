@@ -441,7 +441,7 @@ function App() {
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:text-blue-800 underline font-medium"
                   >
-                    Visit company website
+                    {companyAnalysis.company_website}
                   </a>
                 </div>
               )}
