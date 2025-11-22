@@ -157,6 +157,8 @@ Provide JSON analysis:
             import json
             parsed_data = json.loads(json_str)
             
+            print(f"Parsed AI data: {parsed_data}")  # Debug log
+            
             # Convert citations to serializable format
             serializable_citations = []
             if citations:
@@ -168,11 +170,23 @@ Provide JSON analysis:
                     else:
                         serializable_citations.append(str(citation))
             
+            # Get company website with fallback to Finder.fi search
+            company_website = parsed_data.get("company_website")
+            business_id = company_data.get("business_id", "")
+            company_name = company_data.get("company_name", "")
+            
+            # If no website found or it's null/empty, generate Finder.fi link
+            if not company_website or company_website == "null" or company_website.strip() == "":
+                if business_id:
+                    # Finder.fi provides comprehensive company information including financials
+                    company_website = f"https://www.finder.fi/search?what={business_id}"
+                    print(f"Generated Finder.fi link: {company_website}")
+            
             # Add citations and metadata
             result = {
                 "company_description": parsed_data.get("company_description", "Finnish company seeking funding for growth and innovation."),
                 "market_size": parsed_data.get("market_size", {"value": "€XB", "description": "Market analysis pending"}),
-                "company_website": parsed_data.get("company_website"),
+                "company_website": company_website,
                 "hashtags": parsed_data.get("hashtags", ["#technology", "#innovation", "#finland"]),
                 "ai_confidence": parsed_data.get("ai_confidence", "medium"),
                 "generated_by": "x.ai with web search",
@@ -181,6 +195,7 @@ Provide JSON analysis:
                 "research_enhanced": len(serializable_citations) > 0
             }
             
+            print(f"Final result with website: {result.get('company_website')}")  # Debug log
             return result
             
         except Exception as e:
@@ -193,17 +208,26 @@ Provide JSON analysis:
         company_name = company_data.get('company_name', 'This company')
         industry = company_data.get('industry', 'technology')
         employee_count = company_data.get('employee_count', 'several')
+        growth_stage = company_data.get('growth_stage', 'growth')
+        funding_purpose = company_data.get('funding_purpose', 'development')
+        business_id = company_data.get('business_id', '')
         
         if isinstance(funding_amount, (int, float)):
-            summary = f"{company_name} operates in the {industry} sector with {employee_count} employees, seeking €{funding_amount:,} in funding."
+            summary = f"{company_name} is a Finnish {industry} company with {employee_count} employees at {growth_stage} stage. The company is seeking €{funding_amount:,} in funding for {funding_purpose} to accelerate business growth and innovation."
         else:
-            summary = f"{company_name} operates in the {industry} sector with {employee_count} employees."
+            summary = f"{company_name} is a Finnish {industry} company with {employee_count} employees at {growth_stage} stage, focused on {funding_purpose} and innovation in the Finnish market."
+        
+        # Generate Finder.fi link if business ID available
+        website_link = None
+        if business_id:
+            # Finder.fi provides comprehensive Finnish company data
+            website_link = f"https://www.finder.fi/search?what={business_id}"
         
         return {
             "company_description": summary,
-            "market_size": {"value": "€XB", "description": "Market analysis pending"},
-            "company_website": None,
-            "hashtags": [f"#{industry.lower().replace(' ', '').replace('-', '')}", "#technology", "#finland"],
+            "market_size": {"value": "Market data pending", "description": f"Global and European market for {industry} sector showing strong growth potential"},
+            "company_website": website_link,
+            "hashtags": [f"#{industry.lower().replace(' ', '').replace('-', '')}", f"#{growth_stage}", "#finland", "#innovation"],
             "ai_confidence": "low",
             "generated_by": "fallback system",
             "company_name": company_name,

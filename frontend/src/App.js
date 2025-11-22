@@ -157,6 +157,19 @@ function App() {
         additional_info: "AI-powered business analytics platform",
       },
     },
+    {
+      name: "Reaktor Advanced Technologies Oy",
+      data: {
+        company_name: "Reaktor Advanced Technologies Oy",
+        business_id: "2535449-7",
+        industry: "Computer programming activities",
+        employee_count: "100",
+        funding_need_amount: "1000000",
+        growth_stage: "scale-up",
+        funding_purpose: "internationalization",
+        additional_info: "Software development and technology consulting services",
+      },
+    },
   ];
 
   const loadTestCompany = (testData) => {
