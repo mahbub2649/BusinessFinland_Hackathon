@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.services.company_enrichment import CompanyEnrichmentService
 from backend.services.funding_discovery import FundingDiscoveryService
+from backend.services.xai_funding_discovery import XAIFundingDiscoveryService
 from backend.services.matching_engine import MatchingEngine
 from backend.services.xai_service import xai_service
 from backend.models.schemas import CompanyInput, FundingRecommendation
@@ -38,7 +39,12 @@ app.add_middleware(
 # Initialize services
 company_service = CompanyEnrichmentService()
 funding_service = FundingDiscoveryService()
+xai_funding_service = XAIFundingDiscoveryService()  # New AI-powered discovery
 matching_engine = MatchingEngine()
+
+# Use XAI-based discovery by default (set to False to use traditional scraping)
+USE_XAI_FUNDING_DISCOVERY = os.getenv("USE_XAI_FUNDING_DISCOVERY", "true").lower() == "true"
+logger.info(f"Funding discovery mode: {'🤖 XAI-powered' if USE_XAI_FUNDING_DISCOVERY else '🕸️ Web scraping'}")
 
 # Results cache - use absolute path relative to this file
 RESULTS_CACHE_DIR = Path(__file__).parent / "cache" / "results"
@@ -125,8 +131,15 @@ async def analyze_company(company_input: CompanyInput):
         logger.info(f"Company enriched: {enriched_company.industry}")
         
         # Step 2: Discover funding opportunities
-        funding_programs = await funding_service.discover_funding()
-        logger.info(f"Found {len(funding_programs)} funding programs")
+        if USE_XAI_FUNDING_DISCOVERY:
+            # Use XAI-powered discovery with company context
+            company_dict = company_input.model_dump()
+            funding_programs = await xai_funding_service.discover_funding_for_company(company_dict)
+            logger.info(f"🤖 XAI discovered {len(funding_programs)} funding programs")
+        else:
+            # Use traditional web scraping
+            funding_programs = await funding_service.discover_funding()
+            logger.info(f"🕸️ Scraped {len(funding_programs)} funding programs")
         
         # Step 3: Match and rank
         recommendations = await matching_engine.match_funding(

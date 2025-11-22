@@ -11,6 +11,16 @@ from pathlib import Path
 
 from backend.models.schemas import FundingProgram, GrowthStage
 
+# Import xAI for dynamic URL discovery
+try:
+    from xai_sdk import Client
+    from xai_sdk.chat import user
+    from xai_sdk.tools import web_search
+    XAI_AVAILABLE = True
+except ImportError:
+    XAI_AVAILABLE = False
+    logging.warning("xai_sdk not available - URL discovery will use fallback URLs")
+
 logger = logging.getLogger(__name__)
 
 # Global rate limiter manager (singleton pattern)
@@ -35,7 +45,7 @@ class GlobalRateLimiterManager:
 _global_rate_manager = GlobalRateLimiterManager()
 
 class RateLimiter:
-    """Rate limiter to prevent overwhelming target websites"""
+    """Rate limiter to prevent overwhelming tarAI URL discovery failed: 'Client' object has no attribute 'completions'get websites"""
     def __init__(self, calls_per_minute: int = 10):
         self.calls_per_minute = calls_per_minute
         self.calls = []
@@ -117,19 +127,128 @@ class CacheManager:
             logger.error(f"Error caching {url}: {e}")
 
 class FundingDiscoveryService:
-    """Enhanced service with global rate limiting, caching, and better error handling"""
+    """Enhanced service with global rate limiting, caching, and AI-powered URL discovery"""
     
     def __init__(self):
         # Use global rate limiters for coordination across services
         self.rate_manager = _global_rate_manager
         
         self.cache = CacheManager(cache_duration_minutes=30)
+        self.url_cache = CacheManager(cache_dir="cache/urls", cache_duration_minutes=1440)  # 24 hour cache for URLs
+        
+        # Initialize xAI client for URL discovery
+        self.xai_client = None
+        if XAI_AVAILABLE:
+            try:
+                api_key = self._get_xai_api_key()
+                if api_key:
+                    self.xai_client = Client(api_key=api_key)
+                    logger.info("✅ xAI client initialized for intelligent URL discovery")
+                else:
+                    logger.warning("⚠️ XAI_API_KEY not found - URL discovery will use fallback URLs")
+            except Exception as e:
+                logger.warning(f"❌ Failed to initialize xAI client: {e}")
+        else:
+            logger.warning("⚠️ xai_sdk not available - URL discovery will use fallback URLs")
         
         self.sources = {
-            "business_finland": BusinessFinlandScraper(self.rate_manager, self.cache),
-            "ely": ELYScraper(self.rate_manager),
-            "finnvera": FinnveraScraper(self.rate_manager)
+            "business_finland": BusinessFinlandScraper(self.rate_manager, self.cache, self.xai_client, self.url_cache),
+            "ely": ELYScraper(self.rate_manager, self.xai_client, self.url_cache),
+            "finnvera": FinnveraScraper(self.rate_manager, self.xai_client, self.url_cache)
         }
+    
+    def _get_xai_api_key(self) -> Optional[str]:
+        """Get xAI API key from environment or config"""
+        import os
+        api_key = os.getenv('XAI_API_KEY')
+        if not api_key:
+            try:
+                # Try to read from config file if exists
+                config_path = Path(__file__).parent.parent / "config.json"
+                if config_path.exists():
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                        api_key = config.get('xai_api_key')
+            except Exception as e:
+                logger.debug(f"Could not read config file: {e}")
+        return api_key
+    
+    async def _discover_urls_with_ai(self, organization: str, description: str) -> List[str]:
+        """Use xAI to discover current funding program URLs for an organization"""
+        if not self.xai_client:
+            logger.debug(f"xAI client not available for {organization} URL discovery")
+            return []
+        
+        # Check cache first
+        cache_key = f"urls_{organization}"
+        cached_urls = self.url_cache.get(cache_key)
+        if cached_urls:
+            logger.info(f"🔍 Using cached URLs for {organization}")
+            return json.loads(cached_urls)
+        
+        try:
+            logger.info(f"🤖 Discovering URLs for {organization} using xAI...")
+            
+            prompt = f"""Find the current active funding program pages on the {organization} website.
+
+Organization: {organization}
+What they offer: {description}
+
+Please search the web and provide a list of 3-5 specific URLs that lead to funding program pages (NOT just the homepage).
+Return ONLY valid URLs, one per line, no explanations.
+Focus on pages that list funding programs, grants, loans, or financial support options.
+
+Example format:
+https://www.example.fi/en/funding/program-1
+https://www.example.fi/en/funding/program-2
+"""
+            
+            response = self.xai_client.chat.completions.create(
+                model="grok-4-1-fast-non-reasoning",
+                messages=[{
+                    "role": "user",
+                    "content": prompt
+                }],
+                tools=[{
+                    "type": "web_search",
+                    "web_search": {
+                        "search_queries": [
+                            f"{organization} funding programs 2024 2025 site:{organization.lower().replace(' ', '')}.fi",
+                            f"{organization} rahoitus ohjelmat site:{organization.lower().replace(' ', '')}.fi"
+                        ]
+                    }
+                }],
+                temperature=0.3
+            )
+            
+            urls_text = response.choices[0].message.content
+            
+            # Extract URLs from response
+            url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+            urls = re.findall(url_pattern, urls_text)
+            
+            # Filter and validate URLs
+            valid_urls = []
+            for url in urls:
+                # Must be from the correct domain
+                domain_keywords = organization.lower().replace(' ', '').replace('-', '')
+                if any(keyword in url.lower() for keyword in [domain_keywords, organization.lower().split()[0]]):
+                    # Skip homepage, contact, about pages
+                    if not any(skip in url.lower() for skip in ['contact', 'about', 'news', 'etusivu', 'yhteystiedot']):
+                        valid_urls.append(url)
+            
+            if valid_urls:
+                logger.info(f"✓ Discovered {len(valid_urls)} URLs for {organization}")
+                # Cache the URLs for 24 hours
+                self.url_cache.set(cache_key, json.dumps(valid_urls))
+                return valid_urls[:5]  # Limit to 5 URLs
+            else:
+                logger.warning(f"No valid URLs discovered for {organization}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error discovering URLs for {organization}: {e}")
+            return []
     
     async def discover_funding(self) -> List[FundingProgram]:
         """Discover funding opportunities with serialized rate limiting"""
@@ -171,17 +290,18 @@ class FundingDiscoveryService:
         return all_programs
 
 class BusinessFinlandScraper:
-    """Enhanced Business Finland scraper with global rate limiting and caching"""
+    """Enhanced Business Finland scraper with AI-powered URL discovery"""
     
-    def __init__(self, rate_manager: GlobalRateLimiterManager, cache: CacheManager):
+    def __init__(self, rate_manager: GlobalRateLimiterManager, cache: CacheManager, xai_client=None, url_cache=None):
         self.base_url = "https://www.businessfinland.fi"
         self.rate_manager = rate_manager
         self.cache = cache
-        self.funding_pages = [
-            # English pages - updated URLs for 2024/2025
-            "/en/for-finnish-customers/services/funding",
-            "/en/for-finnish-customers/services/funding/research-development-and-innovation-funding",
-            "/en/for-finnish-customers/services/funding/funding-for-growth-and-internationalization",
+        self.xai_client = xai_client
+        self.url_cache = url_cache
+        
+        # Fallback URLs if AI discovery fails
+        self.fallback_funding_pages = [
+            "en/services/funding/",
         ]
         
         # Enhanced headers to appear more like a real browser
@@ -201,9 +321,12 @@ class BusinessFinlandScraper:
         return self.rate_manager.get_limiter("default", calls_per_minute=10)
     
     async def scrape(self) -> List[FundingProgram]:
-        """Scrape Business Finland with rate limiting and caching"""
-        logger.info("Starting Business Finland scraping with rate limiting...")
+        """Scrape Business Finland with AI-powered URL discovery"""
+        logger.info("Starting Business Finland scraping with AI URL discovery...")
         programs = []
+        
+        # Try to discover current URLs using AI
+        funding_urls = await self._get_funding_urls()
         
         async with httpx.AsyncClient(
             timeout=15.0, 
@@ -211,10 +334,8 @@ class BusinessFinlandScraper:
             headers=self.headers,
             limits=httpx.Limits(max_connections=2, max_keepalive_connections=1)
         ) as client:
-            for page_url in self.funding_pages:
+            for full_url in funding_urls:
                 try:
-                    full_url = self.base_url + page_url
-                    
                     # Check cache first
                     cached_content = self.cache.get(full_url)
                     if cached_content:
@@ -235,23 +356,84 @@ class BusinessFinlandScraper:
                         
                         page_programs = self._parse_funding_page(response.text, full_url)
                         programs.extend(page_programs)
-                        logger.info(f"Successfully scraped {full_url}")
+                        logger.info(f"✓ Successfully scraped {full_url} - found {len(page_programs)} programs")
                     else:
                         logger.warning(f"HTTP {response.status_code} for {full_url}")
                         
                 except asyncio.TimeoutError:
-                    logger.error(f"Timeout scraping {page_url}")
+                    logger.error(f"Timeout scraping {full_url}")
                 except httpx.ConnectError:
-                    logger.error(f"Connection error for {page_url}")
+                    logger.error(f"Connection error for {full_url}")
                 except Exception as e:
-                    logger.error(f"Error scraping Business Finland page {page_url}: {str(e)}")
+                    logger.error(f"Error scraping Business Finland page {full_url}: {str(e)}")
         
-        # Always include fallback programs
-        fallback_programs = self._get_fallback_programs()
-        programs.extend(fallback_programs)
+        # Always include fallback programs if no real data was scraped
+        if len(programs) == 0:
+            logger.info("No programs scraped, using fallback programs")
+            fallback_programs = self._get_fallback_programs()
+            programs.extend(fallback_programs)
         
         logger.info(f"Business Finland scraping complete: {len(programs)} programs")
         return programs
+    
+    async def _get_funding_urls(self) -> List[str]:
+        """Get funding URLs using AI discovery or fallback to hardcoded URLs"""
+        if self.xai_client and self.url_cache:
+            # Check cache first
+            cache_key = "urls_business_finland"
+            cached_urls = self.url_cache.get(cache_key)
+            if cached_urls:
+                urls = json.loads(cached_urls)
+                logger.info(f"🔍 Using {len(urls)} cached Business Finland URLs")
+                return urls
+            
+            # Try AI discovery
+            try:
+                logger.info("🤖 Discovering Business Finland URLs using xAI web search...")
+                
+                prompt = """Find the current active funding program pages on Business Finland website (businessfinland.fi).
+
+Please search the web and provide 3-5 specific URLs that lead to funding program pages in ENGLISH.
+Return ONLY valid URLs, one per line, no explanations.
+Focus on pages that list funding programs, grants, or innovation funding.
+
+Example format:
+https://www.businessfinland.fi/en/services/funding/
+"""
+                
+                # Create chat with web search tool
+                chat = self.xai_client.chat.create(
+                    model="grok-4-1-fast-non-reasoning",
+                    tools=[web_search()]
+                )
+                
+                chat.append(user(prompt))
+                
+                # Get response from streaming
+                urls_text = ""
+                for response, chunk in chat.stream():
+                    if chunk.content:
+                        urls_text += chunk.content
+                
+                # Extract URLs from response
+                url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+                urls = re.findall(url_pattern, urls_text)
+                
+                # Filter for businessfinland.fi URLs
+                valid_urls = [url for url in urls if 'businessfinland.fi' in url.lower() 
+                             and not any(skip in url.lower() for skip in ['contact', 'about', 'news', 'etusivu'])]
+                
+                if valid_urls:
+                    logger.info(f"✓ Discovered {len(valid_urls)} Business Finland URLs")
+                    self.url_cache.set(cache_key, json.dumps(valid_urls))
+                    return valid_urls[:5]
+                    
+            except Exception as e:
+                logger.warning(f"AI URL discovery failed: {e}")
+        
+        # Fallback to hardcoded URLs
+        logger.info("📦 Using fallback Business Finland URLs")
+        return [self.base_url + path for path in self.fallback_funding_pages]
     
     def _parse_funding_page(self, html_content: str, source_url: str) -> List[FundingProgram]:
         """Parse Business Finland funding page HTML with better error handling"""
@@ -386,13 +568,17 @@ class BusinessFinlandScraper:
         ]
 
 class ELYScraper:
-    """ELY Centre scraper with rate limiting and Finnish language support"""
+    """ELY Centre scraper with AI-powered URL discovery"""
     
-    def __init__(self, rate_manager: GlobalRateLimiterManager):
+    def __init__(self, rate_manager: GlobalRateLimiterManager, xai_client=None, url_cache=None):
         self.rate_manager = rate_manager
         self.base_url = "https://www.ely-keskus.fi"
         self.cache = CacheManager(cache_duration_minutes=30)
-        self.funding_pages = [
+        self.xai_client = xai_client
+        self.url_cache = url_cache
+        
+        # Fallback URLs if AI discovery fails
+        self.fallback_funding_pages = [
             "/web/ely/yritysrahoitus",
             "/web/ely/starttiraha",
             "/web/ely/kehittamisavustus"
@@ -408,8 +594,11 @@ class ELYScraper:
         }
     
     async def scrape(self) -> List[FundingProgram]:
-        logger.info("ELY Centre scraping with Finnish language support...")
+        logger.info("ELY Centre scraping with AI URL discovery...")
         programs = []
+        
+        # Try to discover current URLs using AI
+        funding_urls = await self._get_funding_urls()
         
         async with httpx.AsyncClient(
             timeout=15.0, 
@@ -417,10 +606,8 @@ class ELYScraper:
             headers=self.headers,
             limits=httpx.Limits(max_connections=2, max_keepalive_connections=1)
         ) as client:
-            for page_url in self.funding_pages:
+            for full_url in funding_urls:
                 try:
-                    full_url = self.base_url + page_url
-                    
                     # Check cache first
                     cached_content = self.cache.get(full_url)
                     if cached_content:
@@ -441,23 +628,79 @@ class ELYScraper:
                         
                         page_programs = self._parse_ely_page(response.text, full_url)
                         programs.extend(page_programs)
-                        logger.info(f"Successfully scraped {full_url}")
+                        logger.info(f"✓ Successfully scraped {full_url} - found {len(page_programs)} programs")
                     else:
                         logger.warning(f"HTTP {response.status_code} for {full_url}")
                         
                 except asyncio.TimeoutError:
-                    logger.error(f"Timeout scraping {page_url}")
+                    logger.error(f"Timeout scraping {full_url}")
                 except httpx.ConnectError:
-                    logger.error(f"Connection error for {page_url}")
+                    logger.error(f"Connection error for {full_url}")
                 except Exception as e:
-                    logger.error(f"Error scraping ELY page {page_url}: {str(e)}")
+                    logger.error(f"Error scraping ELY page {full_url}: {str(e)}")
         
-        # Add fallback programs
-        fallback_programs = self._get_ely_fallback_programs()
-        programs.extend(fallback_programs)
+        # Add fallback programs if no real data was scraped
+        if len(programs) == 0:
+            logger.info("No programs scraped, using fallback programs")
+            fallback_programs = self._get_ely_fallback_programs()
+            programs.extend(fallback_programs)
         
         logger.info(f"ELY Centre scraping complete: {len(programs)} programs")
         return programs
+    
+    async def _get_funding_urls(self) -> List[str]:
+        """Get funding URLs using AI discovery or fallback to hardcoded URLs"""
+        if self.xai_client and self.url_cache:
+            cache_key = "urls_ely_keskus"
+            cached_urls = self.url_cache.get(cache_key)
+            if cached_urls:
+                urls = json.loads(cached_urls)
+                logger.info(f"🔍 Using {len(urls)} cached ELY URLs")
+                return urls
+            
+            try:
+                logger.info("🤖 Discovering ELY URLs using xAI web search...")
+                
+                prompt = """Find the current active funding pages on ELY-keskus website (ely-keskus.fi).
+
+Please search the web and provide 3-5 specific URLs for business funding programs (yritysrahoitus).
+Return ONLY valid URLs, one per line, no explanations.
+Focus on pages about starttiraha, kehittämisavustus, and other business funding.
+
+Example format:
+https://www.ely-keskus.fi/web/ely/yritysrahoitus
+https://www.ely-keskus.fi/web/ely/starttiraha
+"""
+                
+                # Create chat with web search tool
+                chat = self.xai_client.chat.create(
+                    model="grok-4-1-fast-non-reasoning",
+                    tools=[web_search()]
+                )
+                
+                chat.append(user(prompt))
+                
+                # Get response from streaming
+                urls_text = ""
+                for response, chunk in chat.stream():
+                    if chunk.content:
+                        urls_text += chunk.content
+                
+                url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+                urls = re.findall(url_pattern, urls_text)
+                
+                valid_urls = [url for url in urls if 'ely-keskus.fi' in url.lower()]
+                
+                if valid_urls:
+                    logger.info(f"✓ Discovered {len(valid_urls)} ELY URLs")
+                    self.url_cache.set(cache_key, json.dumps(valid_urls))
+                    return valid_urls[:5]
+                    
+            except Exception as e:
+                logger.warning(f"AI URL discovery failed: {e}")
+        
+        logger.info("📦 Using fallback ELY URLs")
+        return [self.base_url + path for path in self.fallback_funding_pages]
     
     def _parse_ely_page(self, html_content: str, source_url: str) -> List[FundingProgram]:
         """Parse ELY Centre page for Finnish funding programs"""
@@ -647,13 +890,17 @@ class ELYScraper:
         ]
 
 class FinnveraScraper:
-    """Finnvera scraper with rate limiting and Finnish language support"""
+    """Finnvera scraper with AI-powered URL discovery"""
     
-    def __init__(self, rate_manager: GlobalRateLimiterManager):
+    def __init__(self, rate_manager: GlobalRateLimiterManager, xai_client=None, url_cache=None):
         self.rate_manager = rate_manager
         self.base_url = "https://www.finnvera.fi"
         self.cache = CacheManager(cache_duration_minutes=30)
-        self.funding_pages = [
+        self.xai_client = xai_client
+        self.url_cache = url_cache
+        
+        # Fallback URLs if AI discovery fails
+        self.fallback_funding_pages = [
             "/finnvera/rahoitus",
             "/finnvera/rahoitus/lainat",
             "/finnvera/rahoitus/takaukset"
@@ -669,8 +916,11 @@ class FinnveraScraper:
         }
     
     async def scrape(self) -> List[FundingProgram]:
-        logger.info("Finnvera scraping with Finnish language support...")
+        logger.info("Finnvera scraping with AI URL discovery...")
         programs = []
+        
+        # Try to discover current URLs using AI
+        funding_urls = await self._get_funding_urls()
         
         async with httpx.AsyncClient(
             timeout=15.0, 
@@ -678,10 +928,8 @@ class FinnveraScraper:
             headers=self.headers,
             limits=httpx.Limits(max_connections=2, max_keepalive_connections=1)
         ) as client:
-            for page_url in self.funding_pages:
+            for full_url in funding_urls:
                 try:
-                    full_url = self.base_url + page_url
-                    
                     # Check cache first
                     cached_content = self.cache.get(full_url)
                     if cached_content:
@@ -702,23 +950,79 @@ class FinnveraScraper:
                         
                         page_programs = self._parse_finnvera_page(response.text, full_url)
                         programs.extend(page_programs)
-                        logger.info(f"Successfully scraped {full_url}")
+                        logger.info(f"✓ Successfully scraped {full_url} - found {len(page_programs)} programs")
                     else:
                         logger.warning(f"HTTP {response.status_code} for {full_url}")
                         
                 except asyncio.TimeoutError:
-                    logger.error(f"Timeout scraping {page_url}")
+                    logger.error(f"Timeout scraping {full_url}")
                 except httpx.ConnectError:
-                    logger.error(f"Connection error for {page_url}")
+                    logger.error(f"Connection error for {full_url}")
                 except Exception as e:
-                    logger.error(f"Error scraping Finnvera page {page_url}: {str(e)}")
+                    logger.error(f"Error scraping Finnvera page {full_url}: {str(e)}")
         
-        # Add fallback programs
-        fallback_programs = self._get_finnvera_fallback_programs()
-        programs.extend(fallback_programs)
+        # Add fallback programs if no real data was scraped
+        if len(programs) == 0:
+            logger.info("No programs scraped, using fallback programs")
+            fallback_programs = self._get_finnvera_fallback_programs()
+            programs.extend(fallback_programs)
         
         logger.info(f"Finnvera scraping complete: {len(programs)} programs")
         return programs
+    
+    async def _get_funding_urls(self) -> List[str]:
+        """Get funding URLs using AI discovery or fallback to hardcoded URLs"""
+        if self.xai_client and self.url_cache:
+            cache_key = "urls_finnvera"
+            cached_urls = self.url_cache.get(cache_key)
+            if cached_urls:
+                urls = json.loads(cached_urls)
+                logger.info(f"🔍 Using {len(urls)} cached Finnvera URLs")
+                return urls
+            
+            try:
+                logger.info("🤖 Discovering Finnvera URLs using xAI web search...")
+                
+                prompt = """Find the current active funding pages on Finnvera website (finnvera.fi).
+
+Please search the web and provide 3-5 specific URLs for business loans and guarantees (lainat, takaukset).
+Return ONLY valid URLs, one per line, no explanations.
+Focus on pages about funding products, loans, and guarantees for businesses.
+
+Example format:
+https://www.finnvera.fi/finnvera/rahoitus
+https://www.finnvera.fi/finnvera/rahoitus/lainat
+"""
+                
+                # Create chat with web search tool
+                chat = self.xai_client.chat.create(
+                    model="grok-4-1-fast-non-reasoning",
+                    tools=[web_search()]
+                )
+                
+                chat.append(user(prompt))
+                
+                # Get response from streaming
+                urls_text = ""
+                for response, chunk in chat.stream():
+                    if chunk.content:
+                        urls_text += chunk.content
+                
+                url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+                urls = re.findall(url_pattern, urls_text)
+                
+                valid_urls = [url for url in urls if 'finnvera.fi' in url.lower()]
+                
+                if valid_urls:
+                    logger.info(f"✓ Discovered {len(valid_urls)} Finnvera URLs")
+                    self.url_cache.set(cache_key, json.dumps(valid_urls))
+                    return valid_urls[:5]
+                    
+            except Exception as e:
+                logger.warning(f"AI URL discovery failed: {e}")
+        
+        logger.info("📦 Using fallback Finnvera URLs")
+        return [self.base_url + path for path in self.fallback_funding_pages]
     
     def _parse_finnvera_page(self, html_content: str, source_url: str) -> List[FundingProgram]:
         """Parse Finnvera page for Finnish funding programs"""
