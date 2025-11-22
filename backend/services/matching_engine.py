@@ -184,40 +184,28 @@ class MatchingEngine:
         """
         Score funding amount alignment (0.0 to 1.0)
         """
-<<<<<<< Updated upstream
-        if not company.funding_need_amount:
-=======
-        x = company.funding_need_amount
         minamount = program.min_funding
         maxamount = program.max_funding
+        x = company.funding_need_amount
+
         if not x:
->>>>>>> Stashed changes
             return 0.8  # Unknown need = neutral
-        
-        if not program.min_funding and not program.max_funding:
+        if not minamount and not maxamount:
             return 0.8  # No limits = neutral
-        
-        need = company.funding_need_amount
-        
-        # Check if within range
-        min_ok = not program.min_funding or need >= program.min_funding
-        max_ok = not program.max_funding or need <= program.max_funding
-        
-        if min_ok and max_ok:
-            return 1.0  # Perfect fit
-        
-        # Slightly outside range
-        if program.min_funding and need < program.min_funding:
-            ratio = need / program.min_funding
-            if ratio > 0.5:  # Within 50% of minimum
-                return 0.7
-        
-        if program.max_funding and need > program.max_funding:
-            ratio = program.max_funding / need
-            if ratio > 0.5:  # Program covers 50%+ of need
-                return 0.6
-        
-        return 0.2  # Poor amount match
+        if minamount and x < minamount:
+            # Cubic rise from 0.2 to 1.0 as x approaches minamount
+            return 0.2 + 0.8 * (x / minamount) ** 3
+        if maxamount and x > maxamount:
+            # Exponential decay from 1.0 down to 0.2 as x exceeds maxamount
+            return 0.2 + 0.8 * math.exp(-(x - maxamount) / maxamount)
+        if minamount and maxamount and minamount < x < maxamount:
+            return 1.0
+        # If only one bound is set and x is within or equal to it
+        if minamount and x >= minamount and not maxamount:
+            return 1.0
+        if maxamount and x <= maxamount and not minamount:
+            return 1.0
+        return 0.8  # neutral
     
     def _score_deadline_match(self, program: FundingProgram) -> float:
         """
