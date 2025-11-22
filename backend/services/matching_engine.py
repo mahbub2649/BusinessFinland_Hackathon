@@ -198,7 +198,7 @@ class MatchingEngine:
         if maxamount and x > maxamount:
             # Exponential decay from 1.0 down to 0.2 as x exceeds maxamount
             return 0.2 + 0.8 * math.exp(-(x - maxamount) / maxamount)
-        if minamount and maxamount and minamount < x < maxamount:
+        if minamount and maxamount and (x >= minamount and x <= maxamount):
             return 1.0
         # If only one bound is set and x is within or equal to it
         if minamount and x >= minamount and not maxamount:
