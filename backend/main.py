@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import asyncio
 import logging
 import sys
@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.services.company_enrichment import CompanyEnrichmentService
 from backend.services.funding_discovery import FundingDiscoveryService
 from backend.services.matching_engine import MatchingEngine
+from backend.services.xai_service import xai_service
 from backend.models.schemas import CompanyInput, FundingRecommendation
 
 # Configure logging
@@ -65,6 +66,36 @@ async def analyze_company(company_input: CompanyInput):
         
     except Exception as e:
         logger.error(f"Error analyzing company: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/generate-company-description")
+async def generate_company_description(company_input: CompanyInput) -> Dict[str, Any]:
+    """
+    Generate AI-powered company description and analysis
+    """
+    try:
+        logger.info(f"Generating description for: {company_input.company_name}")
+        
+        # Convert CompanyInput to dict for the AI service
+        company_data = {
+            "company_name": company_input.company_name,
+            "business_id": company_input.business_id,
+            "industry": company_input.industry,
+            "employee_count": company_input.employee_count,
+            "funding_need_amount": company_input.funding_need_amount,
+            "growth_stage": company_input.growth_stage,
+            "funding_purpose": company_input.funding_purpose,
+            "additional_info": company_input.additional_info
+        }
+        
+        # Generate description using x.ai
+        description = await xai_service.generate_company_description(company_data)
+        
+        logger.info(f"Generated description with confidence: {description.get('ai_confidence', 'unknown')}")
+        return description
+        
+    except Exception as e:
+        logger.error(f"Error generating company description: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/health")

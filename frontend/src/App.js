@@ -31,6 +31,9 @@ import {
   CheckCircle2,
   ArrowRight,
   Loader2,
+  Sparkles,
+  Search,
+  Link,
 } from "lucide-react";
 
 function App() {
@@ -48,15 +51,17 @@ function App() {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [companyAnalysis, setCompanyAnalysis] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
 
   // Helper function to convert URLs in text to clickable links
   const renderTextWithLinks = (text) => {
     if (!text) return text;
-    
+
     // URL regex pattern
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
-    
+
     return parts.map((part, index) => {
       if (part.match(urlRegex)) {
         return (
@@ -86,8 +91,10 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setAnalysisLoading(true);
     setError(null);
     setRecommendations([]);
+    setCompanyAnalysis(null);
 
     try {
       const payload = {
@@ -102,8 +109,14 @@ function App() {
 
       console.log("Sending request:", payload);
 
-      const response = await axios.post("/api/analyze-company", payload);
-      setRecommendations(response.data);
+      // Start both requests in parallel
+      const [analysisResponse, recommendationsResponse] = await Promise.all([
+        axios.post("/api/generate-company-description", payload),
+        axios.post("/api/analyze-company", payload),
+      ]);
+
+      setCompanyAnalysis(analysisResponse.data);
+      setRecommendations(recommendationsResponse.data);
     } catch (err) {
       console.error("Error:", err);
       setError(
@@ -112,6 +125,7 @@ function App() {
       );
     } finally {
       setLoading(false);
+      setAnalysisLoading(false);
     }
   };
 
@@ -397,6 +411,121 @@ function App() {
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
+        )}
+
+        {/* Company Analysis */}
+        {companyAnalysis && (
+          <Card className="bg-gradient-to-br from-purple-50 to-indigo-50 border-purple-200">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-purple-800">
+                <Sparkles className="h-5 w-5" />
+                AI Company Analysis
+              </CardTitle>
+              <CardDescription className="text-purple-600">
+                Generated insights for {companyAnalysis.company_name}
+                {companyAnalysis.ai_confidence && (
+                  <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+                    {companyAnalysis.ai_confidence} confidence
+                  </span>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Company Website Link */}
+              {companyAnalysis.company_website && (
+                <div className="flex items-center gap-2 mb-4">
+                  <Link className="h-4 w-4 text-blue-600" />
+                  <a
+                    href={companyAnalysis.company_website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 underline font-medium"
+                  >
+                    Visit company website
+                  </a>
+                </div>
+              )}
+
+              {/* Company Description */}
+              <div className="space-y-3">
+                <h4 className="font-semibold text-purple-800 flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  Company Overview
+                </h4>
+                <p className="text-gray-700 leading-relaxed">
+                  {companyAnalysis.company_description}
+                </p>
+              </div>
+
+              {/* Market Size */}
+              {companyAnalysis.market_size && (
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-purple-800 flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    Market Size
+                  </h4>
+                  <div className="bg-white rounded-lg p-4 border border-purple-100">
+                    <div className="text-lg font-bold text-purple-800">
+                      {companyAnalysis.market_size.value}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {companyAnalysis.market_size.description}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Hashtags */}
+              {companyAnalysis.hashtags &&
+                companyAnalysis.hashtags.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {companyAnalysis.hashtags.map((hashtag, index) => (
+                        <span
+                          key={index}
+                          className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full font-medium"
+                        >
+                          {hashtag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Citations (if available) */}
+              {companyAnalysis.citations &&
+                companyAnalysis.citations.length > 0 && (
+                  <div className="space-y-2 border-t border-purple-200 pt-4">
+                    <h4 className="font-semibold text-gray-700 flex items-center gap-2 text-sm">
+                      <Search className="h-3 w-3" />
+                      Research Sources ({companyAnalysis.citations.length})
+                    </h4>
+                    <div className="text-xs text-gray-500 space-y-1">
+                      {companyAnalysis.citations
+                        .slice(0, 3)
+                        .map((citation, index) => (
+                          <div key={index} className="flex items-center gap-2">
+                            <Link className="h-3 w-3" />
+                            <a
+                              href={citation}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 underline truncate"
+                            >
+                              {citation}
+                            </a>
+                          </div>
+                        ))}
+                      {companyAnalysis.citations.length > 3 && (
+                        <p className="text-gray-400 text-xs">
+                          +{companyAnalysis.citations.length - 3} more sources
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Recommendations */}
