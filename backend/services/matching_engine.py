@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import List, Dict, Any
 from backend.models.schemas import (
     EnrichedCompany, FundingProgram, FundingRecommendation, 
@@ -183,7 +184,14 @@ class MatchingEngine:
         """
         Score funding amount alignment (0.0 to 1.0)
         """
+<<<<<<< Updated upstream
         if not company.funding_need_amount:
+=======
+        x = company.funding_need_amount
+        minamount = program.min_funding
+        maxamount = program.max_funding
+        if not x:
+>>>>>>> Stashed changes
             return 0.8  # Unknown need = neutral
         
         if not program.min_funding and not program.max_funding:
