@@ -49,6 +49,32 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Helper function to convert URLs in text to clickable links
+  const renderTextWithLinks = (text) => {
+    if (!text) return text;
+    
+    // URL regex pattern
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    
+    return parts.map((part, index) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 underline font-medium"
+          >
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setCompanyData((prev) => ({
@@ -515,14 +541,14 @@ function App() {
                         <ArrowRight className="h-4 w-4" />
                         Next Steps
                       </h4>
-                      <ul className="space-y-1">
+                      <ul className="space-y-2">
                         {rec.next_steps.map((step, stepIndex) => (
                           <li
                             key={stepIndex}
                             className="text-sm flex items-start gap-2"
                           >
                             <div className="text-primary mt-1">•</div>
-                            <span>{step}</span>
+                            <span>{renderTextWithLinks(step)}</span>
                           </li>
                         ))}
                       </ul>
