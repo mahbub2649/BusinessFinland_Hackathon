@@ -146,12 +146,28 @@ class FundingDiscoveryService:
                 
                 elapsed = asyncio.get_event_loop().time() - start_time
                 logger.info(f"Completed {source_name}: {len(programs)} programs in {elapsed:.2f}s")
+                
+                # Log each program for debugging
+                for program in programs:
+                    source_type = "🌐 SCRAPED" if not program.program_id.endswith("_2024") else "📦 FALLBACK"
+                    logger.info(f"  {source_type} | {program.source.upper():15} | {program.program_name[:60]}")
+                
                 all_programs.extend(programs)
                 
             except Exception as e:
                 logger.error(f"Error scraping {source_name}: {str(e)}")
         
-        logger.info(f"Total funding programs discovered: {len(all_programs)}")
+        # Summary statistics
+        scraped_count = sum(1 for p in all_programs if not p.program_id.endswith("_2024"))
+        fallback_count = sum(1 for p in all_programs if p.program_id.endswith("_2024"))
+        
+        logger.info(f"=" * 80)
+        logger.info(f"FUNDING DISCOVERY SUMMARY:")
+        logger.info(f"  Total programs: {len(all_programs)}")
+        logger.info(f"  🌐 Scraped from websites: {scraped_count}")
+        logger.info(f"  📦 Fallback programs: {fallback_count}")
+        logger.info(f"=" * 80)
+        
         return all_programs
 
 class BusinessFinlandScraper:

@@ -270,6 +270,9 @@ class MatchingEngine:
         # Funding match
         if match_score.funding_score >= 0.8 and company.funding_need_amount:
             justifications.append(f"Funding need (€{company.funding_need_amount:,}) within program range")
+
+        if match_score.funding_score <= 0.3 and company.funding_need_amount:
+            justifications.append(f"Funding need (€{company.funding_need_amount:,}) may not align well with program range")
         
         # Geographic
         if match_score.geography_score >= 0.8:
