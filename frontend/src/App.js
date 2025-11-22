@@ -621,36 +621,47 @@ function App() {
                     <div className="space-y-2">
                       {[
                         {
-                          label: "Industry",
+                          label: "Industry (30%)",
                           score: rec.match_score.industry_score,
+                          weight: 0.30,
                         },
                         {
-                          label: "Geography",
+                          label: "Geography (25%)",
                           score: rec.match_score.geography_score,
+                          weight: 0.25,
                         },
-                        { label: "Size", score: rec.match_score.size_score },
                         {
-                          label: "Amount",
+                          label: "Size (20%)",
+                          score: rec.match_score.size_score,
+                          weight: 0.20,
+                        },
+                        {
+                          label: "Amount (15%)",
                           score: rec.match_score.funding_score,
+                          weight: 0.15,
                         },
                         {
-                          label: "Timing",
+                          label: "Timing (10%)",
                           score: rec.match_score.deadline_score,
+                          weight: 0.10,
                         },
                       ].map((item) => (
                         <div
                           key={item.label}
                           className="flex items-center gap-3"
                         >
-                          <div className="text-sm font-medium w-20">
+                          <div className="text-sm font-medium w-32">
                             {item.label}:
                           </div>
                           <Progress
                             value={item.score * 100}
                             className="flex-1"
                           />
-                          <div className="text-sm font-medium w-12">
+                          <div className="text-sm font-medium w-16 text-right">
                             {Math.round(item.score * 100)}%
+                          </div>
+                          <div className="text-xs text-gray-500 w-12 text-right">
+                            +{Math.round(item.score * item.weight * 100)}%
                           </div>
                         </div>
                       ))}
