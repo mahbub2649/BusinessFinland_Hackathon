@@ -178,12 +178,10 @@ class BusinessFinlandScraper:
         self.rate_manager = rate_manager
         self.cache = cache
         self.funding_pages = [
-            # English pages
+            # English pages - updated URLs for 2024/2025
             "/en/for-finnish-customers/services/funding",
-            "/en/for-finnish-customers/services/funding/research-and-development-funding",
-            # Finnish pages
-            "/fi/suomalaisille-asiakkaille/palvelut/rahoitus",
-            "/fi/suomalaisille-asiakkaille/palvelut/rahoitus/tutkimus-ja-kehitystoiminnan-rahoitus"
+            "/en/for-finnish-customers/services/funding/research-development-and-innovation-funding",
+            "/en/for-finnish-customers/services/funding/funding-for-growth-and-internationalization",
         ]
         
         # Enhanced headers to appear more like a real browser
@@ -395,9 +393,9 @@ class ELYScraper:
         self.base_url = "https://www.ely-keskus.fi"
         self.cache = CacheManager(cache_duration_minutes=30)
         self.funding_pages = [
-            "/yritysrahoitus",
-            "/aloittavan-yrittajan-toimintaohjelma",
-            "/pk-yrityksen-kehittamisavustus"
+            "/web/ely/yritysrahoitus",
+            "/web/ely/starttiraha",
+            "/web/ely/kehittamisavustus"
         ]
         
         # Headers for Finnish sites
@@ -656,10 +654,9 @@ class FinnveraScraper:
         self.base_url = "https://www.finnvera.fi"
         self.cache = CacheManager(cache_duration_minutes=30)
         self.funding_pages = [
-            "/rahoitus",
-            "/rahoitus/lainat",
-            "/rahoitus/takaukset",
-            "/rahoitus/pk-yritykset"
+            "/finnvera/rahoitus",
+            "/finnvera/rahoitus/lainat",
+            "/finnvera/rahoitus/takaukset"
         ]
         
         # Headers for Finnish sites
