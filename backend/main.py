@@ -40,15 +40,18 @@ company_service = CompanyEnrichmentService()
 funding_service = FundingDiscoveryService()
 matching_engine = MatchingEngine()
 
-# Results cache
-RESULTS_CACHE_DIR = Path("cache/results")
+# Results cache - use absolute path relative to this file
+RESULTS_CACHE_DIR = Path(__file__).parent / "cache" / "results"
 RESULTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DURATION_HOURS = 24
+logger.info(f"Results cache directory: {RESULTS_CACHE_DIR.absolute()}")
 
 def get_cache_key(company_input: CompanyInput) -> str:
     """Generate unique cache key from company input"""
     key_data = f"{company_input.company_name}|{company_input.business_id}|{company_input.industry}|{company_input.employee_count}|{company_input.funding_need_amount}|{company_input.growth_stage}|{company_input.funding_purpose}"
-    return hashlib.md5(key_data.encode()).hexdigest()
+    cache_key = hashlib.md5(key_data.encode()).hexdigest()
+    logger.debug(f"Cache key: {cache_key} (from: {key_data})")
+    return cache_key
 
 def get_cached_results(cache_key: str) -> Optional[Dict[str, Any]]:
     """Get cached analysis results if not expired"""
@@ -150,17 +153,30 @@ async def generate_company_description(company_input: CompanyInput) -> Dict[str,
     Generate AI-powered company description and analysis
     Uses cache to return instant results for repeated searches
     """
+    import time
+    start_time = time.time()
+    
     try:
         logger.info(f"Generating description for: {company_input.company_name}")
         
         # Generate cache key
         cache_key = get_cache_key(company_input)
         
-        # Check cache first
-        cached = get_cached_results(cache_key)
-        if cached and 'description' in cached:
-            logger.info(f"⚡ Returning cached company description (instant)")
-            return cached['description']
+        # Check cache first - use separate cache key for description to avoid conflicts
+        description_cache_key = f"desc_{cache_key}"
+        description_cache_file = RESULTS_CACHE_DIR / f"{description_cache_key}.json"
+        
+        if description_cache_file.exists():
+            try:
+                with open(description_cache_file, 'r', encoding='utf-8') as f:
+                    cached_data = json.load(f)
+                cached_time = datetime.fromisoformat(cached_data['timestamp'])
+                if datetime.now() - cached_time < timedelta(hours=CACHE_DURATION_HOURS):
+                    elapsed = time.time() - start_time
+                    logger.info(f"⚡ Returning cached company description (took {elapsed:.3f}s)")
+                    return cached_data['description']
+            except Exception as e:
+                logger.error(f"Error reading description cache: {e}")
         
         # Convert CompanyInput to dict for the AI service
         company_data = {
@@ -175,17 +191,23 @@ async def generate_company_description(company_input: CompanyInput) -> Dict[str,
         }
         
         # Generate description using x.ai
+        logger.info(f"⏱️ Calling x.ai API (this will take 3-5 seconds)...")
         description = await xai_service.generate_company_description(company_data)
         
-        logger.info(f"Generated description with confidence: {description.get('ai_confidence', 'unknown')}")
+        elapsed = time.time() - start_time
+        logger.info(f"Generated description with confidence: {description.get('ai_confidence', 'unknown')} (took {elapsed:.3f}s)")
         
-        # Cache the description
-        if cached:
-            cached['description'] = description
-            save_cached_results(cache_key, cached)
-        else:
-            cache_data = {'description': description}
-            save_cached_results(cache_key, cache_data)
+        # Cache the description separately
+        try:
+            cache_data = {
+                'description': description,
+                'timestamp': datetime.now().isoformat()
+            }
+            with open(description_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"✓ Cached description with key: {description_cache_key}")
+        except Exception as e:
+            logger.error(f"Error caching description: {e}")
         
         return description
         
