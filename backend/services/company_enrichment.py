@@ -1,7 +1,7 @@
 import httpx
 import logging
 from typing import Optional
-from models.schemas import CompanyInput, EnrichedCompany, GrowthStage
+from backend.models.schemas import CompanyInput, EnrichedCompany, GrowthStage
 
 logger = logging.getLogger(__name__)
 

@@ -87,6 +87,6 @@ class MatchScore(BaseModel):
 class FundingRecommendation(BaseModel):
     program: FundingProgram
     match_score: MatchScore
-    justification: str = Field(..., description="Human-readable explanation")
+    justification: List[str] = Field(..., description="Human-readable explanation points")
     next_steps: List[str] = Field(default=[], description="Recommended actions")
     warnings: List[str] = Field(default=[], description="Potential issues")

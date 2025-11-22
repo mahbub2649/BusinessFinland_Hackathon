@@ -7,13 +7,13 @@ import logging
 import sys
 import os
 
-# Add the backend directory to the path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the project root to the path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from services.company_enrichment import CompanyEnrichmentService
-from services.funding_discovery import FundingDiscoveryService
-from services.matching_engine import MatchingEngine
-from models.schemas import CompanyInput, FundingRecommendation
+from backend.services.company_enrichment import CompanyEnrichmentService
+from backend.services.funding_discovery import FundingDiscoveryService
+from backend.services.matching_engine import MatchingEngine
+from backend.models.schemas import CompanyInput, FundingRecommendation
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

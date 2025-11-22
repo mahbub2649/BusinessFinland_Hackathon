@@ -62,7 +62,6 @@ uvicorn main:app --reload --port 8000
 # Install dependencies
 cd frontend
 npm install
-npm install -D tailwindcss postcss autoprefixer
 
 # Start frontend
 npm start

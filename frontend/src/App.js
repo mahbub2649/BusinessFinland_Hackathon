@@ -493,7 +493,19 @@ function App() {
                   <Alert>
                     <CheckCircle2 className="h-4 w-4" />
                     <AlertTitle>Why this matches</AlertTitle>
-                    <AlertDescription>{rec.justification}</AlertDescription>
+                    <AlertDescription>
+                      <ul className="space-y-1 mt-2">
+                        {rec.justification.map((point, pointIndex) => (
+                          <li
+                            key={pointIndex}
+                            className="text-sm flex items-start gap-2"
+                          >
+                            <div className="text-green-500 mt-1">•</div>
+                            <span>{point}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
                   </Alert>
 
                   {/* Next Steps */}

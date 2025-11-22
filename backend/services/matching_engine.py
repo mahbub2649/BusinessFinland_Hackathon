@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Any
-from models.schemas import (
+from backend.models.schemas import (
     EnrichedCompany, FundingProgram, FundingRecommendation, 
     MatchScore, GrowthStage
 )
@@ -253,7 +253,7 @@ class MatchingEngine:
         company: EnrichedCompany, 
         program: FundingProgram, 
         match_score: MatchScore
-    ) -> str:
+    ) -> List[str]:
         """
         Generate human-readable justification for the match
         """
@@ -261,9 +261,10 @@ class MatchingEngine:
         
         # Industry match
         if match_score.industry_score >= 0.8:
-            justifications.append(f"Strong industry alignment: {company.industry} matches {program.focus_areas}")
+            focus_areas_text = ", ".join(program.focus_areas) if program.focus_areas else "innovation and growth"
+            justifications.append(f"Strong industry alignment: {company.industry} matches {focus_areas_text}")
         elif match_score.industry_score >= 0.6:
-            justifications.append(f"Good industry fit: {company.industry} relevant for {program.program_name}")
+            justifications.append(f"Good industry fit: {company.industry} is relevant for {program.program_name}")
         
         # Size match
         if match_score.size_score >= 0.8:
@@ -285,7 +286,7 @@ class MatchingEngine:
         if not justifications:
             justifications.append("Partial match based on available criteria")
         
-        return ". ".join(justifications) + "."
+        return justifications
     
     def _generate_next_steps(self, program: FundingProgram) -> List[str]:
         """

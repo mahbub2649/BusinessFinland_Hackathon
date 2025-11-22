@@ -9,7 +9,7 @@ import re
 import hashlib
 from pathlib import Path
 
-from models.schemas import FundingProgram, GrowthStage
+from backend.models.schemas import FundingProgram, GrowthStage
 
 logger = logging.getLogger(__name__)
 
@@ -162,8 +162,12 @@ class BusinessFinlandScraper:
         self.rate_manager = rate_manager
         self.cache = cache
         self.funding_pages = [
+            # English pages
             "/en/for-finnish-customers/services/funding",
-            "/en/for-finnish-customers/services/funding/research-and-development-funding"
+            "/en/for-finnish-customers/services/funding/research-and-development-funding",
+            # Finnish pages
+            "/fi/suomalaisille-asiakkaille/palvelut/rahoitus",
+            "/fi/suomalaisille-asiakkaille/palvelut/rahoitus/tutkimus-ja-kehitystoiminnan-rahoitus"
         ]
         
         # Enhanced headers to appear more like a real browser
@@ -368,27 +372,218 @@ class BusinessFinlandScraper:
         ]
 
 class ELYScraper:
-    """ELY Centre scraper with rate limiting"""
+    """ELY Centre scraper with rate limiting and Finnish language support"""
     
     def __init__(self, rate_manager: GlobalRateLimiterManager):
         self.rate_manager = rate_manager
+        self.base_url = "https://www.ely-keskus.fi"
+        self.cache = CacheManager(cache_duration_minutes=30)
+        self.funding_pages = [
+            "/yritysrahoitus",
+            "/aloittavan-yrittajan-toimintaohjelma",
+            "/pk-yrityksen-kehittamisavustus"
+        ]
+        
+        # Headers for Finnish sites
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'fi-FI,fi;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        }
     
     async def scrape(self) -> List[FundingProgram]:
-        logger.info("ELY Centre scraping with rate limiting...")
+        logger.info("ELY Centre scraping with Finnish language support...")
+        programs = []
         
-        # Apply rate limiting even for fallback data
-        rate_limiter = self.rate_manager.get_limiter("ely-keskus.fi", calls_per_minute=8)
-        await rate_limiter.acquire()
+        async with httpx.AsyncClient(
+            timeout=15.0, 
+            follow_redirects=True,
+            headers=self.headers,
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1)
+        ) as client:
+            for page_url in self.funding_pages:
+                try:
+                    full_url = self.base_url + page_url
+                    
+                    # Check cache first
+                    cached_content = self.cache.get(full_url)
+                    if cached_content:
+                        page_programs = self._parse_ely_page(cached_content, full_url)
+                        programs.extend(page_programs)
+                        continue
+                    
+                    # Apply rate limiting
+                    rate_limiter = self.rate_manager.get_limiter("ely-keskus.fi", calls_per_minute=8)
+                    await rate_limiter.acquire()
+                    
+                    logger.info(f"Fetching ELY page: {full_url}")
+                    response = await client.get(full_url)
+                    
+                    if response.status_code == 200:
+                        # Cache the content
+                        self.cache.set(full_url, response.text)
+                        
+                        page_programs = self._parse_ely_page(response.text, full_url)
+                        programs.extend(page_programs)
+                        logger.info(f"Successfully scraped {full_url}")
+                    else:
+                        logger.warning(f"HTTP {response.status_code} for {full_url}")
+                        
+                except asyncio.TimeoutError:
+                    logger.error(f"Timeout scraping {page_url}")
+                except httpx.ConnectError:
+                    logger.error(f"Connection error for {page_url}")
+                except Exception as e:
+                    logger.error(f"Error scraping ELY page {page_url}: {str(e)}")
         
-        # Simulate realistic scraping time
-        await asyncio.sleep(2)
+        # Add fallback programs
+        fallback_programs = self._get_ely_fallback_programs()
+        programs.extend(fallback_programs)
         
+        logger.info(f"ELY Centre scraping complete: {len(programs)} programs")
+        return programs
+    
+    def _parse_ely_page(self, html_content: str, source_url: str) -> List[FundingProgram]:
+        """Parse ELY Centre page for Finnish funding programs"""
+        programs = []
+        
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Look for funding program sections with Finnish selectors
+            program_sections = (
+                soup.find_all(['div', 'section'], class_=re.compile(r'avustus|rahoitus|tuki|ohjelma')) +
+                soup.find_all(['article', 'div'], class_=re.compile(r'card|item|entry|content')) +
+                soup.find_all('div', attrs={'data-component': re.compile(r'funding|program|rahoitus')})
+            )
+            
+            for section in program_sections[:5]:  # Limit to prevent too many results
+                program = self._extract_ely_program_info(section, source_url)
+                if program:
+                    programs.append(program)
+                    
+        except Exception as e:
+            logger.error(f"Error parsing ELY page: {str(e)}")
+        
+        return programs
+    
+    def _extract_ely_program_info(self, section, source_url: str) -> Optional[FundingProgram]:
+        """Extract Finnish program information from HTML section"""
+        try:
+            # Try multiple selectors for titles (Finnish content)
+            title_elem = (
+                section.find(['h1', 'h2', 'h3', 'h4']) or 
+                section.find(['div', 'span'], class_=re.compile(r'title|heading|name|otsikko'))
+            )
+            
+            if not title_elem:
+                return None
+                
+            program_name = title_elem.get_text(strip=True)
+            if len(program_name) < 5 or len(program_name) > 200:  # Validate length
+                return None
+            
+            # Skip if it's just navigation or generic text
+            skip_terms = ['etusivu', 'menu', 'navigation', 'footer', 'header', 'cookie']
+            if any(term in program_name.lower() for term in skip_terms):
+                return None
+            
+            # Extract description
+            desc_selectors = ['p', 'div.description', 'div.summary', '.lead', '.kuvaus']
+            description = "Lisätietoja saatavilla ELY-keskuksesta"  # Finnish fallback
+            
+            for selector in desc_selectors:
+                desc_elem = section.find(selector)
+                if desc_elem:
+                    desc_text = desc_elem.get_text(strip=True)
+                    if len(desc_text) > 20:  # Meaningful description
+                        description = desc_text
+                        break
+            
+            # Create program with enhanced metadata for Finnish programs
+            return FundingProgram(
+                program_id=f"ely_{hashlib.md5(program_name.encode()).hexdigest()[:8]}",
+                source="ely",
+                program_name=program_name,
+                description=description[:500] + "..." if len(description) > 500 else description,
+                eligible_industries=self._extract_finnish_industries(program_name + " " + description),
+                eligible_company_sizes=["startup", "sme"],
+                eligible_stages=[GrowthStage.PRE_SEED, GrowthStage.SEED, GrowthStage.GROWTH],
+                min_funding=5000,
+                max_funding=500000,
+                funding_type="grant",
+                is_open=True,
+                application_url=source_url,
+                focus_areas=self._extract_finnish_keywords(program_name + " " + description),
+                requirements=["Suomalainen yritys", "Yrittäjyysohjelma", "Liiketoimintasuunnitelma"]
+            )
+            
+        except Exception as e:
+            logger.error(f"Error extracting ELY program info: {str(e)}")
+            return None
+    
+    def _extract_finnish_industries(self, text: str) -> List[str]:
+        """Extract relevant industries from Finnish text"""
+        industries = []
+        text_lower = text.lower()
+        
+        industry_map = {
+            'teknologia': ['technology', 'tech'],
+            'valmistus': ['manufacturing'],
+            'palvelu': ['services'],
+            'kauppa': ['trade'],
+            'teollisuus': ['manufacturing', 'industrial'],
+            'ict': ['technology', 'software'],
+            'cleantech': ['cleantech', 'environmental'],
+            'bio': ['biotechnology'],
+            'elintarvike': ['food'],
+            'matkailu': ['tourism']
+        }
+        
+        for finnish_term, english_terms in industry_map.items():
+            if finnish_term in text_lower:
+                industries.extend(english_terms)
+        
+        # If no specific industries found, assume general business
+        if not industries:
+            industries = ["all"]
+            
+        return list(set(industries))  # Remove duplicates
+    
+    def _extract_finnish_keywords(self, text: str) -> List[str]:
+        """Extract relevant keywords from Finnish description"""
+        keywords = []
+        text_lower = text.lower()
+        
+        keyword_map = {
+            'aloittava': ['startup', 'entrepreneurship'],
+            'kehittäminen': ['development', 'growth'],
+            'innovaatio': ['innovation'],
+            'tutkimus': ['research'],
+            'kansainvälistyminen': ['internationalization'],
+            'investointi': ['investment'],
+            'työllisyys': ['employment'],
+            'yrittäjyys': ['entrepreneurship'],
+            'pk-yritys': ['sme'],
+            'rahoitus': ['funding']
+        }
+        
+        for finnish_term, english_terms in keyword_map.items():
+            if finnish_term in text_lower:
+                keywords.extend(english_terms)
+        
+        return list(set(keywords[:5]))  # Limit to top 5, remove duplicates
+    
+    def _get_ely_fallback_programs(self) -> List[FundingProgram]:
+        """Enhanced ELY fallback programs with Finnish funding options"""
         return [
             FundingProgram(
                 program_id="ely_startup_grant_2024",
                 source="ely",
-                program_name="Startup Grant for New Entrepreneurs",
-                description="Financial support for unemployed individuals starting a new business. Covers initial setup costs and living expenses during the critical startup phase.",
+                program_name="Aloittavan yrittäjän toimintaohjelma",
+                description="Taloudellinen tuki työttömälle henkilölle uuden yrityksen perustamiseen. Kattaa yrittäjän toimeentulon yritystoiminnan käynnistymisvaiheessa.",
                 eligible_industries=["all"],
                 eligible_company_sizes=["startup"],
                 eligible_stages=[GrowthStage.PRE_SEED, GrowthStage.SEED],
@@ -397,15 +592,15 @@ class ELYScraper:
                 funding_type="grant",
                 is_open=True,
                 application_deadline="2025-12-31",
-                application_url="https://www.ely-keskus.fi/",
+                application_url="https://www.ely-keskus.fi/yritysrahoitus",
                 focus_areas=["entrepreneurship", "startup", "business development"],
-                requirements=["Unemployed person", "Viable business idea", "Business plan", "Finnish resident"]
+                requirements=["Työtön henkilö", "Elinkelpoiset liikeideät", "Liiketoimintasuunnitelma", "Suomen asukas"]
             ),
             FundingProgram(
                 program_id="ely_development_grant_2024",
                 source="ely",
-                program_name="SME Development Grant",
-                description="Support for small and medium enterprises to develop their business operations, competitiveness, and growth potential through strategic investments.",
+                program_name="PK-yrityksen kehittämisavustus",
+                description="Tuki pienille ja keskisuurille yrityksille liiketoiminnan kehittämiseen, kilpailukyvyn parantamiseen ja kasvupotentiaalin vahvistamiseen strategisten investointien kautta.",
                 eligible_industries=["manufacturing", "services", "technology", "trade"],
                 eligible_company_sizes=["sme"],
                 eligible_stages=[GrowthStage.GROWTH],
@@ -413,34 +608,220 @@ class ELYScraper:
                 max_funding=500000,
                 funding_type="grant",
                 is_open=True,
-                application_url="https://www.ely-keskus.fi/",
+                application_url="https://www.ely-keskus.fi/yritysrahoitus",
                 focus_areas=["business development", "competitiveness", "growth", "productivity"],
-                requirements=["SME criteria", "Development project", "Co-financing 50%", "Finnish company"]
+                requirements=["PK-yrityksen kriteerit", "Kehittämishanke", "Omarahoitus 50%", "Suomalainen yritys"]
+            ),
+            FundingProgram(
+                program_id="ely_environmental_grant_2024",
+                source="ely",
+                program_name="Ympäristö- ja energiarahoitus",
+                description="Rahoitusta ympäristöystävällisten ja energiatehokkaiden ratkaisujen kehittämiseen ja käyttöönottoon.",
+                eligible_industries=["cleantech", "environmental", "energy"],
+                eligible_company_sizes=["sme", "startup"],
+                eligible_stages=[GrowthStage.SEED, GrowthStage.GROWTH],
+                min_funding=15000,
+                max_funding=300000,
+                funding_type="grant",
+                is_open=True,
+                application_url="https://www.ely-keskus.fi/yritysrahoitus",
+                focus_areas=["environmental", "sustainability", "energy efficiency", "cleantech"],
+                requirements=["Ympäristöhyöty", "Energiatehokkuus", "Omarahoitus", "Suomalainen yritys"]
             )
         ]
 
 class FinnveraScraper:
-    """Finnvera scraper with rate limiting"""
+    """Finnvera scraper with rate limiting and Finnish language support"""
     
     def __init__(self, rate_manager: GlobalRateLimiterManager):
         self.rate_manager = rate_manager
+        self.base_url = "https://www.finnvera.fi"
+        self.cache = CacheManager(cache_duration_minutes=30)
+        self.funding_pages = [
+            "/rahoitus",
+            "/rahoitus/lainat",
+            "/rahoitus/takaukset",
+            "/rahoitus/pk-yritykset"
+        ]
+        
+        # Headers for Finnish sites
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'fi-FI,fi;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        }
     
     async def scrape(self) -> List[FundingProgram]:
-        logger.info("Finnvera scraping with rate limiting...")
+        logger.info("Finnvera scraping with Finnish language support...")
+        programs = []
         
-        # Apply rate limiting even for fallback data
-        rate_limiter = self.rate_manager.get_limiter("finnvera.fi", calls_per_minute=8)
-        await rate_limiter.acquire()
+        async with httpx.AsyncClient(
+            timeout=15.0, 
+            follow_redirects=True,
+            headers=self.headers,
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1)
+        ) as client:
+            for page_url in self.funding_pages:
+                try:
+                    full_url = self.base_url + page_url
+                    
+                    # Check cache first
+                    cached_content = self.cache.get(full_url)
+                    if cached_content:
+                        page_programs = self._parse_finnvera_page(cached_content, full_url)
+                        programs.extend(page_programs)
+                        continue
+                    
+                    # Apply rate limiting
+                    rate_limiter = self.rate_manager.get_limiter("finnvera.fi", calls_per_minute=8)
+                    await rate_limiter.acquire()
+                    
+                    logger.info(f"Fetching Finnvera page: {full_url}")
+                    response = await client.get(full_url)
+                    
+                    if response.status_code == 200:
+                        # Cache the content
+                        self.cache.set(full_url, response.text)
+                        
+                        page_programs = self._parse_finnvera_page(response.text, full_url)
+                        programs.extend(page_programs)
+                        logger.info(f"Successfully scraped {full_url}")
+                    else:
+                        logger.warning(f"HTTP {response.status_code} for {full_url}")
+                        
+                except asyncio.TimeoutError:
+                    logger.error(f"Timeout scraping {page_url}")
+                except httpx.ConnectError:
+                    logger.error(f"Connection error for {page_url}")
+                except Exception as e:
+                    logger.error(f"Error scraping Finnvera page {page_url}: {str(e)}")
         
-        # Simulate realistic scraping time
-        await asyncio.sleep(2.5)
+        # Add fallback programs
+        fallback_programs = self._get_finnvera_fallback_programs()
+        programs.extend(fallback_programs)
         
+        logger.info(f"Finnvera scraping complete: {len(programs)} programs")
+        return programs
+    
+    def _parse_finnvera_page(self, html_content: str, source_url: str) -> List[FundingProgram]:
+        """Parse Finnvera page for Finnish funding programs"""
+        programs = []
+        
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Look for funding program sections with Finnish selectors
+            program_sections = (
+                soup.find_all(['div', 'section'], class_=re.compile(r'laina|takaus|rahoitus|tuote')) +
+                soup.find_all(['article', 'div'], class_=re.compile(r'card|item|entry|product')) +
+                soup.find_all('div', attrs={'data-component': re.compile(r'funding|loan|rahoitus')})
+            )
+            
+            for section in program_sections[:5]:  # Limit to prevent too many results
+                program = self._extract_finnvera_program_info(section, source_url)
+                if program:
+                    programs.append(program)
+                    
+        except Exception as e:
+            logger.error(f"Error parsing Finnvera page: {str(e)}")
+        
+        return programs
+    
+    def _extract_finnvera_program_info(self, section, source_url: str) -> Optional[FundingProgram]:
+        """Extract Finnish Finnvera program information from HTML section"""
+        try:
+            # Try multiple selectors for titles (Finnish content)
+            title_elem = (
+                section.find(['h1', 'h2', 'h3', 'h4']) or 
+                section.find(['div', 'span'], class_=re.compile(r'title|heading|name|otsikko'))
+            )
+            
+            if not title_elem:
+                return None
+                
+            program_name = title_elem.get_text(strip=True)
+            if len(program_name) < 5 or len(program_name) > 200:  # Validate length
+                return None
+            
+            # Skip navigation and generic content
+            skip_terms = ['etusivu', 'menu', 'navigation', 'footer', 'header', 'cookie', 'yhteystiedot']
+            if any(term in program_name.lower() for term in skip_terms):
+                return None
+            
+            # Extract description
+            desc_selectors = ['p', 'div.description', 'div.summary', '.lead', '.kuvaus']
+            description = "Lisätietoja Finnverasta"
+            
+            for selector in desc_selectors:
+                desc_elem = section.find(selector)
+                if desc_elem:
+                    desc_text = desc_elem.get_text(strip=True)
+                    if len(desc_text) > 20:
+                        description = desc_text
+                        break
+            
+            # Determine funding type from program name
+            funding_type = "loan"
+            if "takaus" in program_name.lower():
+                funding_type = "guarantee"
+            elif "avustus" in program_name.lower():
+                funding_type = "grant"
+            
+            return FundingProgram(
+                program_id=f"finnvera_{hashlib.md5(program_name.encode()).hexdigest()[:8]}",
+                source="finnvera",
+                program_name=program_name,
+                description=description[:500] + "..." if len(description) > 500 else description,
+                eligible_industries=["all"],
+                eligible_company_sizes=["sme", "startup"],
+                eligible_stages=[GrowthStage.GROWTH, GrowthStage.SCALE_UP],
+                min_funding=20000,
+                max_funding=10000000,
+                funding_type=funding_type,
+                is_open=True,
+                application_url=source_url,
+                focus_areas=self._extract_finnish_keywords(program_name + " " + description),
+                requirements=["Suomalainen yritys", "Vakuudet", "Liiketoimintasuunnitelma"]
+            )
+            
+        except Exception as e:
+            logger.error(f"Error extracting Finnvera program info: {str(e)}")
+            return None
+    
+    def _extract_finnish_keywords(self, text: str) -> List[str]:
+        """Extract relevant keywords from Finnish description"""
+        keywords = []
+        text_lower = text.lower()
+        
+        keyword_map = {
+            'kasvu': ['growth'],
+            'investointi': ['investment'],
+            'kehittäminen': ['development'],
+            'kansainvälistyminen': ['internationalization'],
+            'käyttöpääoma': ['working capital'],
+            'laina': ['loan'],
+            'takaus': ['guarantee'],
+            'pk-yritys': ['sme'],
+            'startup': ['startup'],
+            'yrittäjyys': ['entrepreneurship']
+        }
+        
+        for finnish_term, english_terms in keyword_map.items():
+            if finnish_term in text_lower:
+                keywords.extend(english_terms)
+        
+        return list(set(keywords[:5]))
+    
+    def _get_finnvera_fallback_programs(self) -> List[FundingProgram]:
+        """Enhanced Finnvera fallback programs with Finnish funding options"""
         return [
             FundingProgram(
-                program_id="finnvera_loan_2024",
+                program_id="finnvera_growth_loan_2024",
                 source="finnvera",
-                program_name="Finnvera Growth Loan",
-                description="Loans for SMEs when traditional bank financing is insufficient. Supports business growth, investments, and working capital needs with favorable terms.",
+                program_name="Finnvera Kasvulaina",
+                description="Lainaa pk-yrityksille, kun perinteinen pankkirahoitus ei riitä. Tukee yrityksen kasvua, investointeja ja käyttöpääomatarpeita edullisin ehdoin.",
                 eligible_industries=["all"],
                 eligible_company_sizes=["sme"],
                 eligible_stages=[GrowthStage.GROWTH, GrowthStage.SCALE_UP],
@@ -448,15 +829,15 @@ class FinnveraScraper:
                 max_funding=10000000,
                 funding_type="loan",
                 is_open=True,
-                application_url="https://www.finnvera.fi/",
+                application_url="https://www.finnvera.fi/rahoitus/lainat",
                 focus_areas=["growth", "investments", "working capital", "expansion"],
-                requirements=["SME criteria", "Viable business model", "Collateral", "Repayment ability"]
+                requirements=["PK-yrityksen kriteerit", "Elinkelpoinen liiketoimintamalli", "Vakuudet", "Takaisinmaksukyky"]
             ),
             FundingProgram(
                 program_id="finnvera_guarantee_2024",
                 source="finnvera",
-                program_name="Finnvera Loan Guarantee",
-                description="Guarantees to secure bank loans for SMEs when collateral is insufficient. Reduces risk for banks and improves access to traditional financing.",
+                program_name="Finnvera Lainavakuus",
+                description="Takauksia pankilainojen vakuudeksi pk-yrityksille, kun vakuudet eivät riitä. Vähentää pankin riskiä ja parantaa pääsyä perinteiseen rahoitukseen.",
                 eligible_industries=["all"],
                 eligible_company_sizes=["sme"],
                 eligible_stages=[GrowthStage.GROWTH, GrowthStage.SCALE_UP],
@@ -464,8 +845,24 @@ class FinnveraScraper:
                 max_funding=5000000,
                 funding_type="guarantee",
                 is_open=True,
-                application_url="https://www.finnvera.fi/",
+                application_url="https://www.finnvera.fi/rahoitus/takaukset",
                 focus_areas=["loan security", "risk mitigation", "bank financing", "growth"],
-                requirements=["SME criteria", "Bank loan application", "Insufficient collateral", "Finnish company"]
+                requirements=["PK-yrityksen kriteerit", "Pankkilainahakemus", "Riittämättömät vakuudet", "Suomalainen yritys"]
+            ),
+            FundingProgram(
+                program_id="finnvera_export_financing_2024",
+                source="finnvera",
+                program_name="Vientiluotto",
+                description="Rahoitusratkaisuja vientitoimintaan ja kansainvälistymiseen. Tukee suomalaisten yritysten menestystä kansainvälisillä markkinoilla.",
+                eligible_industries=["all"],
+                eligible_company_sizes=["sme", "large"],
+                eligible_stages=[GrowthStage.GROWTH, GrowthStage.SCALE_UP],
+                min_funding=100000,
+                max_funding=50000000,
+                funding_type="loan",
+                is_open=True,
+                application_url="https://www.finnvera.fi/rahoitus",
+                focus_areas=["export", "internationalization", "foreign markets", "growth"],
+                requirements=["Vientitoiminta", "Suomalainen yritys", "Vakuudet", "Kansainvälistymissuunnitelma"]
             )
         ]
