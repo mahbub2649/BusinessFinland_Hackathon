@@ -486,7 +486,9 @@ class ELYScraper:
                 return None
             
             # Skip if it's just navigation or generic text
-            skip_terms = ['etusivu', 'menu', 'navigation', 'footer', 'header', 'cookie']
+            skip_terms = ['etusivu', 'menu', 'navigation', 'footer', 'header', 'cookie', 
+                         'tietoa meistä', 'about us', 'yhteystiedot', 'contact', 'uutiset',
+                         'ajankohtaista', 'haku', 'search', 'kirjaudu', 'login']
             if any(term in program_name.lower() for term in skip_terms):
                 return None
             

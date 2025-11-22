@@ -98,6 +98,28 @@ async def generate_company_description(company_input: CompanyInput) -> Dict[str,
         logger.error(f"Error generating company description: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/translate-description")
+async def translate_description(data: Dict[str, str]) -> Dict[str, str]:
+    """
+    Translate Finnish funding program description to English using x.ai
+    """
+    try:
+        finnish_text = data.get("text", "")
+        if not finnish_text:
+            raise HTTPException(status_code=400, detail="No text provided for translation")
+        
+        logger.info(f"Translating Finnish text (length: {len(finnish_text)})")
+        
+        # Use x.ai to translate
+        translation = await xai_service.translate_finnish_to_english(finnish_text)
+        
+        logger.info("Translation completed successfully")
+        return {"translated_text": translation}
+        
+    except Exception as e:
+        logger.error(f"Error translating text: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/health")
 def health_check():
     return {"status": "healthy", "services": "all operational"}

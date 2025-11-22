@@ -234,6 +234,42 @@ Provide JSON analysis:
             "citations": [],
             "research_enhanced": False
         }
+    
+    async def translate_finnish_to_english(self, finnish_text: str) -> str:
+        """
+        Translate Finnish text to English using x.ai
+        
+        Args:
+            finnish_text: The Finnish text to translate
+            
+        Returns:
+            Translated English text
+        """
+        try:
+            chat = self.client.chat.create(
+                model="grok-4-1-fast-non-reasoning"
+            )
+            
+            prompt = f"""Translate this Finnish funding program description to English. 
+Keep the translation natural and professional, maintaining the original meaning and tone.
+
+Finnish text:
+{finnish_text}
+
+Provide ONLY the English translation, without any explanations or additional text."""
+
+            chat.append(user(prompt))
+            
+            full_response = ""
+            for response, chunk in chat.stream():
+                if chunk.content:
+                    full_response += chunk.content
+            
+            return full_response.strip()
+            
+        except Exception as e:
+            print(f"Error translating with x.ai: {e}")
+            return f"Translation unavailable: {str(e)}"
 
 
 # Global instance

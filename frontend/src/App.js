@@ -53,6 +53,9 @@ function App() {
   const [error, setError] = useState(null);
   const [companyAnalysis, setCompanyAnalysis] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [showAllResults, setShowAllResults] = useState(false);
+  const [translatedDescriptions, setTranslatedDescriptions] = useState({});
+  const [translatingIndex, setTranslatingIndex] = useState(null);
 
   // Helper function to convert URLs in text to clickable links
   const renderTextWithLinks = (text) => {
@@ -117,6 +120,7 @@ function App() {
 
       setCompanyAnalysis(analysisResponse.data);
       setRecommendations(recommendationsResponse.data);
+      setShowAllResults(false); // Reset to show only top 5
     } catch (err) {
       console.error("Error:", err);
       setError(
@@ -131,30 +135,46 @@ function App() {
 
   const testCompanies = [
     {
-      name: "CarbonCap Solutions Oy",
+      name: "Meyer Turku Oy",
       data: {
-        company_name: "CarbonCap Solutions Oy",
-        business_id: "1234567-8",
-        industry: "Environmental technology - Carbon capture",
-        employee_count: "50",
-        funding_need_amount: "2000000",
-        growth_stage: "growth",
-        funding_purpose: "rdi",
+        company_name: "Meyer Turku Oy",
+        business_id: "0772017-4",
+        industry:
+          "Finnish shipyard specializing in the design and construction of advanced cruise ships,",
+        employee_count: "1961",
+        funding_need_amount: "10000000",
+        growth_stage: "scale-up",
+        funding_purpose: "equipment",
         additional_info:
-          "Developing carbon capture technology for industrial applications",
+          "Major shipbuilding and ship repair company based in Turku, specializing in cruise ships and specialized vessels",
       },
     },
     {
-      name: "TechStart Oy",
+      name: "Turku Science Park Oy",
       data: {
-        company_name: "TechStart Oy",
-        business_id: "2345678-9",
-        industry: "Software development - SaaS platform",
-        employee_count: "15",
-        funding_need_amount: "500000",
-        growth_stage: "seed",
+        company_name: "Turku Science Park Oy",
+        business_id: "2322323-1",
+        industry: "regional business development agency",
+        employee_count: "60",
+        funding_need_amount: "1500000",
+        growth_stage: "growth",
         funding_purpose: "investments",
-        additional_info: "AI-powered business analytics platform",
+        additional_info:
+          "Technology center providing innovation services and business development support in Turku",
+      },
+    },
+    {
+      name: "Kongsberg Maritime Finland OY",
+      data: {
+        company_name: "Kongsberg Maritime Finland OY",
+        business_id: "1007628-7",
+        industry: "Mechanical engineering and metalworking",
+        employee_count: "14994",
+        funding_need_amount: "3000000",
+        growth_stage: "scale-up",
+        funding_purpose: "rdi",
+        additional_info:
+          "Maritime technology and engineering solutions provider based in Rauma, Finland",
       },
     },
     {
@@ -163,17 +183,49 @@ function App() {
         company_name: "Reaktor Advanced Technologies Oy",
         business_id: "2535449-7",
         industry: "Computer programming activities",
-        employee_count: "100",
+        employee_count: "479",
         funding_need_amount: "1000000",
         growth_stage: "scale-up",
         funding_purpose: "internationalization",
-        additional_info: "Software development and technology consulting services",
+        additional_info:
+          "Software development and technology consulting services",
       },
     },
   ];
 
   const loadTestCompany = (testData) => {
     setCompanyData(testData);
+  };
+
+  const translateDescription = async (index, description, programName) => {
+    if (translatedDescriptions[index]) {
+      // Already translated, toggle back to original
+      const newTranslations = { ...translatedDescriptions };
+      delete newTranslations[index];
+      setTranslatedDescriptions(newTranslations);
+      return;
+    }
+
+    setTranslatingIndex(index);
+    try {
+      const response = await axios.post("/api/translate-description", {
+        text: description,
+      });
+
+      setTranslatedDescriptions({
+        ...translatedDescriptions,
+        [index]: response.data.translated_text,
+      });
+    } catch (err) {
+      console.error("Translation error:", err);
+      setError("Failed to translate description");
+    } finally {
+      setTranslatingIndex(null);
+    }
+  };
+
+  const isFinnishProgram = (source) => {
+    return source === "ely" || source === "finnvera";
   };
 
   return (
@@ -553,11 +605,19 @@ function App() {
                 <CardDescription>
                   Found {recommendations.length} suitable funding opportunities
                   for your company
+                  {recommendations.length > 5 && !showAllResults && (
+                    <span className="ml-1 text-muted-foreground">
+                      (showing top 5)
+                    </span>
+                  )}
                 </CardDescription>
               </CardHeader>
             </Card>
 
-            {recommendations.map((rec, index) => (
+            {(showAllResults
+              ? recommendations
+              : recommendations.slice(0, 5)
+            ).map((rec, index) => (
               <Card key={index} className="overflow-hidden">
                 <CardHeader>
                   <div className="flex items-start justify-between">
@@ -577,7 +637,37 @@ function App() {
                       <div className="text-xs text-muted-foreground">Match</div>
                     </div>
                   </div>
-                  <CardDescription>{rec.program.description}</CardDescription>
+                  <div className="space-y-2">
+                    <CardDescription>
+                      {translatedDescriptions[index] || rec.program.description}
+                    </CardDescription>
+                    {isFinnishProgram(rec.program.source) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          translateDescription(
+                            index,
+                            rec.program.description,
+                            rec.program.program_name
+                          )
+                        }
+                        disabled={translatingIndex === index}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        {translatingIndex === index ? (
+                          <>
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            Translating...
+                          </>
+                        ) : translatedDescriptions[index] ? (
+                          "Show Original Finnish"
+                        ) : (
+                          "Translate to English"
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
 
                 <CardContent className="space-y-6">
@@ -623,7 +713,7 @@ function App() {
                         {
                           label: "Industry (30%)",
                           score: rec.match_score.industry_score,
-                          weight: 0.30,
+                          weight: 0.3,
                         },
                         {
                           label: "Geography (25%)",
@@ -633,7 +723,7 @@ function App() {
                         {
                           label: "Size (20%)",
                           score: rec.match_score.size_score,
-                          weight: 0.20,
+                          weight: 0.2,
                         },
                         {
                           label: "Amount (15%)",
@@ -643,7 +733,7 @@ function App() {
                         {
                           label: "Timing (10%)",
                           score: rec.match_score.deadline_score,
-                          weight: 0.10,
+                          weight: 0.1,
                         },
                       ].map((item) => (
                         <div
@@ -731,6 +821,29 @@ function App() {
                 </CardContent>
               </Card>
             ))}
+
+            {/* Show More / Show Less Button */}
+            {recommendations.length > 5 && (
+              <div className="flex justify-center">
+                <Button
+                  onClick={() => setShowAllResults(!showAllResults)}
+                  variant="outline"
+                  className="w-full md:w-auto"
+                >
+                  {showAllResults ? (
+                    <>
+                      Show Less
+                      <ArrowRight className="ml-2 h-4 w-4 rotate-90" />
+                    </>
+                  ) : (
+                    <>
+                      Show More ({recommendations.length - 5} more programs)
+                      <ArrowRight className="ml-2 h-4 w-4 -rotate-90" />
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </main>
