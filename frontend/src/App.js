@@ -339,7 +339,6 @@ function App() {
                     name="company_name"
                     value={companyData.company_name}
                     onChange={handleInputChange}
-                    placeholder="e.g., CarbonCap Solutions Oy"
                     required
                   />
                 </div>
@@ -355,7 +354,6 @@ function App() {
                       name="business_id"
                       value={companyData.business_id}
                       onChange={handleInputChange}
-                      placeholder="1234567-8"
                       required
                     />
                   </div>
@@ -369,7 +367,6 @@ function App() {
                       type="number"
                       value={companyData.employee_count}
                       onChange={handleInputChange}
-                      placeholder="50"
                       required
                     />
                   </div>
@@ -383,7 +380,6 @@ function App() {
                     name="industry"
                     value={companyData.industry}
                     onChange={handleInputChange}
-                    placeholder="e.g., Environmental technology, Software development"
                     required
                   />
                 </div>
@@ -400,7 +396,6 @@ function App() {
                       type="number"
                       value={companyData.funding_need_amount}
                       onChange={handleInputChange}
-                      placeholder="2000000"
                       required
                     />
                   </div>
