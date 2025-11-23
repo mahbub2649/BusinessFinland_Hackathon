@@ -18,9 +18,6 @@ cd frontend
 echo "📦 Installing dependencies..."
 npm install
 
-echo "📦 Installing additional Tailwind CSS dependencies..."
-npm install -D tailwindcss@latest postcss@latest autoprefixer@latest tailwindcss-animate@latest
-
 echo "🎨 Dependencies installed successfully!"
 echo ""
 echo "🚀 To start the frontend:"
