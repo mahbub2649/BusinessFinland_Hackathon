@@ -32,14 +32,33 @@ Frontend (React + shadcn/ui) → Backend API → Company Enrichment → Funding 
 
 ## Quick Setup
 
-### Option 1: Automatic Setup
+### Option 1: Docker (Recommended - Easiest)
 
 ```bash
-# Complete setup (recommended)
+# Make sure Docker and Docker Compose are installed
+# Then run:
+chmod +x docker-run.sh
+./docker-run.sh
+
+# Or use docker-compose directly:
+docker-compose up
+
+# Access:
+# - Frontend: http://localhost:3000
+# - Backend: http://localhost:8000
+# - API Docs: http://localhost:8000/docs
+```
+
+For detailed Docker instructions, see [DOCKER.md](DOCKER.md)
+
+### Option 2: Automatic Setup Script
+
+```bash
+# Complete setup (recommended for local development)
 ./setup.sh
 ```
 
-### Option 2: Manual Setup
+### Option 3: Manual Setup
 
 #### Backend Setup
 
