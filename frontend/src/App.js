@@ -570,24 +570,6 @@ function App() {
                 </p>
               </div>
 
-              {/* Market Size */}
-              {companyAnalysis.market_size && (
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-purple-800 flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4" />
-                    Market Size
-                  </h4>
-                  <div className="bg-white rounded-lg p-4 border border-purple-100">
-                    <div className="text-lg font-bold text-purple-800">
-                      {companyAnalysis.market_size.value}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {companyAnalysis.market_size.description}
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Hashtags */}
               {companyAnalysis.hashtags &&
                 companyAnalysis.hashtags.length > 0 && (
