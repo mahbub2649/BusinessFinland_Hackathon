@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Smart Funding Advisor - Complete Setup"
+echo "🚀 Smart Funding Advisor - backend Setup"
 echo "========================================"
 echo ""
 
@@ -12,11 +12,6 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-if ! command -v node &> /dev/null; then
-    echo "❌ Node.js is required but not installed."
-    echo "Please install Node.js from https://nodejs.org/"
-    exit 1
-fi
 
 echo "✅ Requirements check passed!"
 echo ""
@@ -43,22 +38,6 @@ cd ..
 echo "✅ Backend setup complete!"
 echo ""
 
-# Setup Frontend
-echo "🎨 Setting up React Frontend..."
-echo "-------------------------------"
-
-cd frontend
-
-# Install frontend dependencies
-echo "📦 Installing Node.js dependencies..."
-npm install
-
-# Install additional Tailwind dependencies
-echo "📦 Installing Tailwind CSS..."
-npm install -D tailwindcss@latest postcss@latest autoprefixer@latest
-
-echo "✅ Frontend setup complete!"
-cd ..
 
 echo ""
 echo "🎉 Setup Complete!"
@@ -70,17 +49,5 @@ echo "1. Start Backend (Terminal 1):"
 echo "   source venv/bin/activate"
 echo "   cd backend"
 echo "   uvicorn main:app --reload --port 8000"
-echo ""
-echo "2. Start Frontend (Terminal 2):"
-echo "   cd frontend"
-echo "   npm start"
-echo ""
-echo "3. Access the application:"
-echo "   Frontend: http://localhost:3000"
-echo "   Backend API: http://localhost:8000"
-echo "   API Docs: http://localhost:8000/docs"
-echo ""
-echo "🧪 To test the pipeline:"
-echo "   python test_pipeline.py"
 echo ""
 echo "Happy hacking! 🚀"
