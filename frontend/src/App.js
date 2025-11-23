@@ -180,11 +180,11 @@ function App() {
       },
     },
     {
-      name: "Reaktor Advanced Technologies Oy",
+      name: "Reaktor Innovations Oy",
       data: {
-        company_name: "Reaktor Advanced Technologies Oy",
-        business_id: "2535449-7",
-        industry: "Computer programming activities",
+        company_name: "Reaktor",
+        business_id: "1629284-5",
+        industry: "IT-Consulting and IT Services",
         employee_count: "479",
         funding_need_amount: "1000000",
         growth_stage: "scale-up",

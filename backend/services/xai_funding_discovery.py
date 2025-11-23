@@ -304,6 +304,8 @@ Return format (valid JSON array):
         # Known problematic patterns - redirect to landing page instead
         problematic_patterns = [
             '/research-development-and-piloting-big-companies',
+            '/research-development-and-piloting',
+            '/research-and-development/research-development-and-piloting',
             '/palveluhaku/',
             '/asiakastunnus',
             '/login',
