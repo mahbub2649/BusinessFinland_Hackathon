@@ -145,11 +145,22 @@ For EACH funding program you find, provide:
 IMPORTANT INSTRUCTIONS:
 - Search for REAL, CURRENT programs (2024-2025)
 - Find at least 6-10 relevant programs
-- Include EXACT application URLs from official websites
-- Focus on programs that match the company's industry, size, and funding needs
+- **CRITICAL: Use STABLE, WORKING URLs** - Provide main landing pages that won't break:
+  - Business Finland: https://www.businessfinland.fi/en/services/funding/ (English) or https://www.businessfinland.fi/suomalaisille-asiakkaille/palvelut/rahoitus (Finnish)
+  - Finnvera: https://www.finnvera.fi/eng/financing (English) or https://www.finnvera.fi/rahoitus (Finnish)
+  - ELY-keskus: https://www.ely-keskus.fi/yritysrahoitus (main funding page)
+  - Avoid deep/specific URLs that might be outdated (e.g., /research-development-and-piloting-big-companies)
+  - If you find a specific program page that works, use it; otherwise use the main funding page
+  - Test the URL if possible before including it
+- **CRITICAL: Match industry SPECIFICALLY** - If the company is in "{company_data.get('industry', 'N/A')}", ONLY include programs explicitly targeting that industry or very closely related sectors
+  - For IT/software companies: software development, ICT, digital services funding (NOT general "technology" or manufacturing)
+  - For manufacturing: manufacturing, production, industrial funding (NOT general services)
+  - For cleantech: environmental, sustainability, clean energy funding (NOT general technology)
+  - Avoid generic "all industries" programs unless highly relevant to the company's specific needs
 - Include both grants and loans
-- Prioritize programs with highest relevance
+- Prioritize programs with highest relevance to the SPECIFIC industry
 - For eligible_stages, ONLY use: "pre_seed", "seed", "growth", "scale_up" (NO "mature" or other values)
+- For eligible_industries, be SPECIFIC: use detailed industry names like "software", "ict", "digital_services", "saas" instead of broad terms like "technology"
 - Return ONLY valid JSON array of programs, no other text
 - Use actual data from websites, not generic descriptions
 
@@ -221,6 +232,10 @@ Return format (valid JSON array):
                                 logger.warning(f"Unknown stage '{stage_str}', using GROWTH as default")
                                 stages.append(GrowthStage.GROWTH)
                         
+                        # Validate and fix application URL
+                        app_url = prog_data.get('application_url', '')
+                        validated_url = self._validate_and_fix_url(app_url, prog_data.get('source', 'unknown'))
+                        
                         # Create FundingProgram object
                         program = FundingProgram(
                             program_id=f"xai_{prog_data.get('source', 'unknown')}_{idx}_{datetime.now().strftime('%Y%m%d')}",
@@ -234,7 +249,7 @@ Return format (valid JSON array):
                             eligible_company_sizes=prog_data.get('eligible_company_sizes', []),
                             eligible_stages=stages if stages else [GrowthStage.GROWTH],
                             requirements=prog_data.get('requirements', []),
-                            application_url=prog_data.get('application_url', ''),
+                            application_url=validated_url,
                             application_deadline=prog_data.get('application_deadline'),
                             focus_areas=prog_data.get('focus_areas', []),
                             is_open=prog_data.get('is_open', True),
@@ -262,6 +277,51 @@ Return format (valid JSON array):
             return self._get_fallback_programs()
         
         return programs
+    
+    def _validate_and_fix_url(self, url: str, source: str) -> str:
+        """
+        Validate URL and fallback to stable landing page if needed.
+        
+        Args:
+            url: The application URL to validate
+            source: The funding source (businessfinland, finnvera, ely-keskus)
+        
+        Returns:
+            Validated or fallback URL
+        """
+        # Fallback URLs for each source
+        fallback_urls = {
+            'businessfinland': 'https://www.businessfinland.fi/en/services/funding/',
+            'finnvera': 'https://www.finnvera.fi/eng/financing',
+            'ely-keskus': 'https://www.ely-keskus.fi/yritysrahoitus',
+            'ely': 'https://www.ely-keskus.fi/yritysrahoitus'
+        }
+        
+        # If no URL or empty, use fallback
+        if not url or not url.strip():
+            return fallback_urls.get(source.lower(), 'https://www.businessfinland.fi/en/services/funding/')
+        
+        # Known problematic patterns - redirect to landing page instead
+        problematic_patterns = [
+            '/research-development-and-piloting-big-companies',
+            '/palveluhaku/',
+            '/asiakastunnus',
+            '/login',
+            '/customer-number'
+        ]
+        
+        for pattern in problematic_patterns:
+            if pattern in url.lower():
+                logger.warning(f"⚠️ Detected potentially broken URL pattern '{pattern}' in {url}")
+                return fallback_urls.get(source.lower(), 'https://www.businessfinland.fi/en/services/funding/')
+        
+        # If URL looks valid (has proper domain), keep it
+        valid_domains = ['businessfinland.fi', 'finnvera.fi', 'ely-keskus.fi']
+        if any(domain in url.lower() for domain in valid_domains):
+            return url
+        
+        # Otherwise, use fallback
+        return fallback_urls.get(source.lower(), 'https://www.businessfinland.fi/en/services/funding/')
     
     def _get_fallback_programs(self) -> List[FundingProgram]:
         """Fallback programs if AI discovery fails"""

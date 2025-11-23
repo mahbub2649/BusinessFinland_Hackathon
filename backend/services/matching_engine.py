@@ -40,8 +40,10 @@ class MatchingEngine:
                 # Calculate match scores
                 match_score = self._calculate_match_score(company, program)
                 
-                # Only include if minimum threshold is met
-                if match_score.total_score >= 0.3:  # 30% minimum match
+                # Apply stricter filtering:
+                # 1. Minimum total score threshold
+                # 2. Minimum industry match threshold (critical for relevance)
+                if match_score.total_score >= 0.4 and match_score.industry_score >= 0.5:
                     recommendation = FundingRecommendation(
                         program=program,
                         match_score=match_score,
@@ -106,7 +108,7 @@ class MatchingEngine:
     
     def _score_industry_match(self, company: EnrichedCompany, program: FundingProgram) -> float:
         """
-        Score industry alignment (0.0 to 1.0)
+        Score industry alignment (0.0 to 1.0) with stricter matching for specific industries
         """
         if not program.eligible_industries:
             return 0.8  # No restrictions = good match
@@ -114,31 +116,65 @@ class MatchingEngine:
         company_industry = company.industry.lower() if company.industry else ""
         company_keywords = [kw.lower() for kw in company.industry_keywords]
         
-        # Check direct industry matches
+        # Define specific industry mappings for better matching
+        industry_clusters = {
+            "software": ["software", "ict", "digital", "saas", "it", "technology services", "programming", "web", "app"],
+            "manufacturing": ["manufacturing", "production", "industrial", "factory", "assembly"],
+            "cleantech": ["cleantech", "clean", "environmental", "sustainability", "green", "renewable", "energy efficiency"],
+            "healthcare": ["healthcare", "health", "medical", "pharma", "biotech", "life sciences"],
+            "services": ["services", "consulting", "professional services", "business services"]
+        }
+        
+        # Check direct industry matches (highest score)
         for eligible_industry in program.eligible_industries:
             eligible_lower = eligible_industry.lower()
             
-            # Direct match
-            if eligible_lower in company_industry:
+            # Exact match
+            if eligible_lower == company_industry or eligible_lower in company_industry:
                 return 1.0
             
-            # Keyword match
+            # Check if company industry contains the eligible industry
+            if company_industry and eligible_lower in company_industry:
+                return 0.95
+            
+            # Keyword exact match
             for keyword in company_keywords:
-                if keyword in eligible_lower or eligible_lower in keyword:
+                if keyword == eligible_lower:
                     return 0.9
+                if keyword in eligible_lower or eligible_lower in keyword:
+                    return 0.85
         
-        # Check focus areas
+        # Check industry cluster matching (e.g., "software" matches "ict", "digital", etc.)
+        for cluster_name, cluster_terms in industry_clusters.items():
+            company_in_cluster = any(term in company_industry for term in cluster_terms)
+            program_in_cluster = any(
+                any(term in prog_ind.lower() for term in cluster_terms)
+                for prog_ind in program.eligible_industries
+            )
+            
+            if company_in_cluster and program_in_cluster:
+                return 0.8
+        
+        # Check focus areas (lower priority)
         for focus_area in program.focus_areas:
             focus_lower = focus_area.lower()
             if focus_lower in company_industry:
-                return 0.8
+                return 0.7
             for keyword in company_keywords:
                 if keyword in focus_lower:
-                    return 0.7
+                    return 0.65
         
-        # Generic technology/innovation programs
-        if any(term in program.eligible_industries for term in ["technology", "innovation", "all"]):
-            return 0.6
+        # Generic programs - very low score to discourage unless truly relevant
+        if any(term.lower() in ["all", "general", "any industry"] for term in program.eligible_industries):
+            return 0.5
+        
+        # Broad "technology" without specifics - penalize for non-tech companies
+        if "technology" in [ind.lower() for ind in program.eligible_industries]:
+            # Only give moderate score if company has tech keywords
+            if any(tech_term in company_industry for tech_term in ["tech", "software", "digital", "it", "ict"]):
+                return 0.5
+            else:
+                return 0.3  # Low score for non-tech companies matching generic "technology"
         
         return 0.2  # Poor match
     
