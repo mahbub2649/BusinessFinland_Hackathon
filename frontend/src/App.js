@@ -34,6 +34,7 @@ import {
   Sparkles,
   Search,
   Link,
+  Trash2,
 } from "lucide-react";
 
 function App() {
@@ -56,6 +57,7 @@ function App() {
   const [showAllResults, setShowAllResults] = useState(false);
   const [translatedDescriptions, setTranslatedDescriptions] = useState({});
   const [translatingIndex, setTranslatingIndex] = useState(null);
+  const [clearingCache, setClearingCache] = useState(false);
 
   // Helper function to convert URLs in text to clickable links
   const renderTextWithLinks = (text) => {
@@ -228,6 +230,29 @@ function App() {
     return source === "ely" || source === "finnvera";
   };
 
+  const handleClearCache = async () => {
+    if (
+      !window.confirm(
+        "Are you sure you want to clear all cached results? This will force fresh queries for all companies."
+      )
+    ) {
+      return;
+    }
+
+    setClearingCache(true);
+    try {
+      const response = await axios.delete("/api/clear-cache");
+      alert(
+        `✓ Cache cleared successfully! Cleared ${response.data.cleared_count} cached files.`
+      );
+    } catch (err) {
+      console.error("Error clearing cache:", err);
+      alert("Failed to clear cache. Please try again.");
+    } finally {
+      setClearingCache(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
@@ -247,13 +272,36 @@ function App() {
         {/* Test Companies */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5" />
-              Quick Test Companies
-            </CardTitle>
-            <CardDescription>
-              Try our demo with these sample companies
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5" />
+                  Quick Test Companies
+                </CardTitle>
+                <CardDescription>
+                  Try our demo with these sample companies
+                </CardDescription>
+              </div>
+              <Button
+                onClick={handleClearCache}
+                disabled={clearingCache}
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                {clearingCache ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Clearing...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Clear Cache
+                  </>
+                )}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3">

@@ -250,6 +250,31 @@ async def translate_description(data: Dict[str, str]) -> Dict[str, str]:
         logger.error(f"Error translating text: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/api/clear-cache")
+def clear_cache():
+    """
+    Clear all cached results and descriptions
+    """
+    try:
+        import shutil
+        cleared_count = 0
+        
+        # Clear results cache
+        if RESULTS_CACHE_DIR.exists():
+            for cache_file in RESULTS_CACHE_DIR.glob("*.json"):
+                cache_file.unlink()
+                cleared_count += 1
+        
+        logger.info(f"✓ Cleared {cleared_count} cache files")
+        return {
+            "status": "success",
+            "message": f"Cleared {cleared_count} cached files",
+            "cleared_count": cleared_count
+        }
+    except Exception as e:
+        logger.error(f"Error clearing cache: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
+
 @app.get("/api/health")
 def health_check():
     return {"status": "healthy", "services": "all operational"}
